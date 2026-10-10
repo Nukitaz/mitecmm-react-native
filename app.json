@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "TsiAppMovil",
-    "slug": "TsiAppMovil",
+    "name": "MiTecmm",
+    "slug": "mitecmm-react-native",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

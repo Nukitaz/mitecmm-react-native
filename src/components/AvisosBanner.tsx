@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { AlertTriangle, ChevronRight, X } from "lucide-react-native";
 import { fetchAvisos, type Aviso } from "../services/avisosService";
+import { useTheme } from "../context/ThemeContext";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -28,26 +29,57 @@ const formatFecha = (iso: string) => {
   }
 };
 
-/** Renderiza en negrita el texto antes de los dos puntos (ej: "URGENTE: Protocolo de salud") */
-const renderSubtitulo = (texto: string, isLight: boolean = false) => {
+/** Renderiza el subtítulo destacando los textos urgentes en ROJO */
+const renderSubtitulo = (
+  texto: string,
+  isDarkMode: boolean,
+  esUrgente?: boolean
+) => {
   const idx = texto.indexOf(":");
-  if (idx === -1)
+  if (idx === -1) {
     return (
-      <Text style={isLight ? styles.subLight : styles.subDark}>{texto}</Text>
+      <Text
+        style={
+          esUrgente
+            ? styles.textUrgent
+            : isDarkMode
+            ? styles.subDark
+            : styles.subLight
+        }
+      >
+        {texto}
+      </Text>
     );
+  }
 
   const label = texto.slice(0, idx);
   const rest = texto.slice(idx);
 
   return (
-    <Text style={isLight ? styles.subLight : styles.subDark}>
-      <Text style={styles.textBold}>{label}</Text>
+    <Text
+      style={
+        esUrgente
+          ? styles.textUrgent
+          : isDarkMode
+          ? styles.subDark
+          : styles.subLight
+      }
+    >
+      <Text
+        style={[
+          styles.textBold,
+          esUrgente ? styles.textUrgentBold : !isDarkMode && styles.textBoldLight,
+        ]}
+      >
+        {label}
+      </Text>
       {rest}
     </Text>
   );
 };
 
 export const AvisosBanner = () => {
+  const { isDarkMode } = useTheme();
   const [avisos, setAvisos] = useState<Aviso[]>([]);
   const [selected, setSelected] = useState<Aviso | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -73,7 +105,7 @@ export const AvisosBanner = () => {
         toValue: 1,
         duration: 28000,
         easing: Easing.linear,
-        useNativeDriver: true,
+        useNativeDriver: Platform.OS !== "web", // 👈 Desactiva en Web y mantiene en iOS/Android
       })
     );
     animation.start();
@@ -91,10 +123,25 @@ export const AvisosBanner = () => {
   return (
     <>
       {/* Banner Principal */}
-      <View style={styles.bannerContainer}>
-        <View style={styles.leftControls}>
+      <View
+        style={[
+          styles.bannerContainer,
+          !isDarkMode && styles.bannerContainerLight,
+        ]}
+      >
+        <View
+          style={[
+            styles.leftControls,
+            !isDarkMode && styles.leftControlsLight,
+          ]}
+        >
           <Text style={styles.badgeText}>AVISOS</Text>
-          <View style={styles.divider} />
+          <View
+            style={[
+              styles.divider,
+              !isDarkMode && styles.dividerLight,
+            ]}
+          />
           <TouchableOpacity
             style={styles.verTodosBtn}
             onPress={() => setSheetOpen(true)}
@@ -108,7 +155,14 @@ export const AvisosBanner = () => {
         {/* Marquee en movimiento */}
         <View style={styles.marqueeContainer}>
           {tickerItems.length === 0 ? (
-            <Text style={styles.emptyText}>Sin avisos por el momento</Text>
+            <Text
+              style={[
+                styles.emptyText,
+                !isDarkMode && styles.textLightSecondary,
+              ]}
+            >
+              Sin avisos por el momento
+            </Text>
           ) : (
             <Animated.View
               style={[styles.marqueeTrack, { transform: [{ translateX }] }]}
@@ -120,11 +174,17 @@ export const AvisosBanner = () => {
                   onPress={() => setSelected(a)}
                   activeOpacity={0.7}
                 >
-                  {a.es_urgente && (
-                    <AlertTriangle size={13} color="#f43f5e" />
-                  )}
-                  <Text style={styles.tickerText}>
-                    {a.subtitulo ? renderSubtitulo(a.subtitulo) : a.titulo}
+                  {a.es_urgente && <AlertTriangle size={13} color="#f43f5e" />}
+                  <Text
+                    style={[
+                      styles.tickerText,
+                      !isDarkMode && styles.tickerTextLight,
+                      a.es_urgente && styles.tickerTextUrgent,
+                    ]}
+                  >
+                    {a.subtitulo
+                      ? renderSubtitulo(a.subtitulo, isDarkMode, a.es_urgente)
+                      : a.titulo}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -133,7 +193,7 @@ export const AvisosBanner = () => {
         </View>
       </View>
 
-      {/* Sheet / Historial Lateral Derecho */}
+      {/* Historial Lateral */}
       <Modal
         visible={sheetOpen}
         animationType="fade"
@@ -146,23 +206,48 @@ export const AvisosBanner = () => {
             activeOpacity={1}
             onPress={() => setSheetOpen(false)}
           />
-          <View style={styles.sheetPanel}>
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>HISTORIAL DE AVISOS</Text>
+          <View
+            style={[
+              styles.sheetPanel,
+              !isDarkMode && styles.sheetPanelLight,
+            ]}
+          >
+            <View
+              style={[
+                styles.sheetHeader,
+                !isDarkMode && styles.sheetHeaderLight,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.sheetTitle,
+                  !isDarkMode && styles.sheetTitleLight,
+                ]}
+              >
+                HISTORIAL DE AVISOS
+              </Text>
               <TouchableOpacity onPress={() => setSheetOpen(false)}>
-                <X size={18} color="#a1a1aa" />
+                <X size={18} color={isDarkMode ? "#a1a1aa" : "#64748b"} />
               </TouchableOpacity>
             </View>
 
             <ScrollView contentContainerStyle={styles.sheetList}>
               {avisos.length === 0 && (
-                <Text style={styles.emptyText}>No hay avisos disponibles.</Text>
+                <Text
+                  style={[
+                    styles.emptyText,
+                    !isDarkMode && styles.textLightSecondary,
+                  ]}
+                >
+                  No hay avisos disponibles.
+                </Text>
               )}
               {avisos.map((a) => (
                 <TouchableOpacity
                   key={a.id}
                   style={[
                     styles.sheetCard,
+                    !isDarkMode && styles.sheetCardLight,
                     a.es_urgente && styles.sheetCardUrgent,
                   ]}
                   onPress={() => {
@@ -185,16 +270,28 @@ export const AvisosBanner = () => {
                         {a.es_urgente ? "URGENTE" : "AVISO"}
                       </Text>
                     </View>
-                    <Text style={styles.sheetDateText}>
+                    <Text
+                      style={[
+                        styles.sheetDateText,
+                        !isDarkMode && styles.textLightSecondary,
+                      ]}
+                    >
                       {formatFecha(a.fecha_publicacion)}
                     </Text>
                   </View>
 
-                  <Text style={styles.sheetCardTitle}>{a.titulo}</Text>
+                  <Text
+                    style={[
+                      styles.sheetCardTitle,
+                      !isDarkMode && styles.sheetCardTitleLight,
+                    ]}
+                  >
+                    {a.titulo}
+                  </Text>
 
                   {a.subtitulo && (
                     <Text style={styles.sheetCardSub}>
-                      {renderSubtitulo(a.subtitulo, true)}
+                      {renderSubtitulo(a.subtitulo, isDarkMode, a.es_urgente)}
                     </Text>
                   )}
                 </TouchableOpacity>
@@ -204,7 +301,7 @@ export const AvisosBanner = () => {
         </View>
       </Modal>
 
-      {/* Modal Centrado Detalle del Aviso */}
+      {/* Modal Detalle */}
       <Modal
         visible={selected !== null}
         animationType="fade"
@@ -220,9 +317,12 @@ export const AvisosBanner = () => {
             activeOpacity={1}
             style={[
               styles.dialogBox,
+              !isDarkMode && styles.dialogBoxLight,
               selected?.es_urgente
                 ? styles.dialogUrgentBorder
-                : styles.dialogNormalBorder,
+                : isDarkMode
+                ? styles.dialogNormalBorder
+                : styles.dialogNormalBorderLight,
             ]}
           >
             {selected && (
@@ -237,28 +337,54 @@ export const AvisosBanner = () => {
                     </View>
                   )}
                   <TouchableOpacity
-                    style={styles.closeBtn}
+                    style={[
+                      styles.closeBtn,
+                      !isDarkMode && styles.closeBtnLight,
+                    ]}
                     onPress={() => setSelected(null)}
                   >
-                    <X size={16} color="#a1a1aa" />
+                    <X size={16} color={isDarkMode ? "#a1a1aa" : "#64748b"} />
                   </TouchableOpacity>
                 </View>
 
-                <Text style={styles.dialogTitle}>{selected.titulo}</Text>
+                <Text
+                  style={[
+                    styles.dialogTitle,
+                    !isDarkMode && styles.dialogTitleLight,
+                  ]}
+                >
+                  {selected.titulo}
+                </Text>
 
                 {selected.subtitulo && (
                   <View style={styles.dialogSubContainer}>
-                    {renderSubtitulo(selected.subtitulo, true)}
+                    {renderSubtitulo(
+                      selected.subtitulo,
+                      isDarkMode,
+                      selected.es_urgente
+                    )}
                   </View>
                 )}
 
                 {selected.contenido && (
                   <ScrollView style={styles.bodyScroll}>
-                    <Text style={styles.dialogBody}>{selected.contenido}</Text>
+                    <Text
+                      style={[
+                        styles.dialogBody,
+                        !isDarkMode && styles.dialogBodyLight,
+                      ]}
+                    >
+                      {selected.contenido}
+                    </Text>
                   </ScrollView>
                 )}
 
-                <Text style={styles.dialogDate}>
+                <Text
+                  style={[
+                    styles.dialogDate,
+                    !isDarkMode && styles.textLightSecondary,
+                  ]}
+                >
                   {formatFecha(selected.fecha_publicacion).toUpperCase()}
                 </Text>
               </>
@@ -283,6 +409,10 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     overflow: "hidden",
   },
+  bannerContainerLight: {
+    backgroundColor: "#ffffff",
+    borderColor: "#e2e8f0",
+  },
   leftControls: {
     flexDirection: "row",
     alignItems: "center",
@@ -291,6 +421,9 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 4,
     marginRight: 12,
+  },
+  leftControlsLight: {
+    backgroundColor: "rgba(168, 85, 247, 0.1)",
   },
   badgeText: {
     fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
@@ -304,6 +437,9 @@ const styles = StyleSheet.create({
     height: 12,
     backgroundColor: "rgba(168, 85, 247, 0.3)",
     marginHorizontal: 8,
+  },
+  dividerLight: {
+    backgroundColor: "rgba(168, 85, 247, 0.2)",
   },
   verTodosBtn: {
     flexDirection: "row",
@@ -336,23 +472,32 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#e4e4e7",
   },
+  tickerTextLight: {
+    color: "#0f172a",
+  },
+  tickerTextUrgent: {
+    color: "#f43f5e",
+    fontWeight: "bold",
+  },
   emptyText: {
     fontSize: 12,
     color: "#71717a",
   },
-  subDark: { color: "#a1a1aa" },
-  subLight: { color: "#d4d4d8" },
-  textBold: { fontWeight: "bold", color: "#ffffff" },
 
-  // Sheet Lateral Derecho
+  /* COLORES Y ESTILOS DE TEXTO URGENTE EN ROJO */
+  subDark: { color: "#a1a1aa" },
+  subLight: { color: "#64748b" },
+  textBold: { fontWeight: "bold", color: "#ffffff" },
+  textBoldLight: { color: "#0f172a" },
+  textUrgent: { color: "#f43f5e" },
+  textUrgentBold: { fontWeight: "bold", color: "#f43f5e" },
+
   sheetOverlay: {
     flex: 1,
     flexDirection: "row",
     backgroundColor: "rgba(0, 0, 0, 0.7)",
   },
-  sheetBackdrop: {
-    flex: 1,
-  },
+  sheetBackdrop: { flex: 1 },
   sheetPanel: {
     width: "100%",
     maxWidth: 400,
@@ -360,6 +505,10 @@ const styles = StyleSheet.create({
     borderLeftWidth: 1,
     borderLeftColor: "#27272a",
     padding: 20,
+  },
+  sheetPanelLight: {
+    backgroundColor: "#ffffff",
+    borderLeftColor: "#e2e8f0",
   },
   sheetHeader: {
     flexDirection: "row",
@@ -370,6 +519,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "#1e1e24",
     paddingBottom: 12,
   },
+  sheetHeaderLight: { borderBottomColor: "#e2e8f0" },
   sheetTitle: {
     fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
     fontSize: 15,
@@ -377,16 +527,18 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     letterSpacing: 2,
   },
-  sheetList: {
-    gap: 12,
-    paddingBottom: 24,
-  },
+  sheetTitleLight: { color: "#0f172a" },
+  sheetList: { gap: 12, paddingBottom: 24 },
   sheetCard: {
     backgroundColor: "#121215",
     borderWidth: 1,
     borderColor: "#27272a",
     borderRadius: 4,
     padding: 16,
+  },
+  sheetCardLight: {
+    backgroundColor: "#f8fafc",
+    borderColor: "#e2e8f0",
   },
   sheetCardUrgent: {
     borderLeftWidth: 4,
@@ -411,10 +563,7 @@ const styles = StyleSheet.create({
   },
   tagUrgent: { color: "#f43f5e" },
   tagNormal: { color: "#a855f7" },
-  sheetDateText: {
-    fontSize: 11,
-    color: "#71717a",
-  },
+  sheetDateText: { fontSize: 11, color: "#71717a" },
   sheetCardTitle: {
     fontSize: 18,
     fontWeight: "900",
@@ -422,12 +571,9 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
-  sheetCardSub: {
-    fontSize: 13,
-    marginTop: 4,
-  },
+  sheetCardTitleLight: { color: "#0f172a" },
+  sheetCardSub: { fontSize: 13, marginTop: 4 },
 
-  // Modal Detalle Centrado Exacto
   dialogOverlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.85)",
@@ -444,10 +590,16 @@ const styles = StyleSheet.create({
     padding: 24,
     maxHeight: "80%",
   },
+  dialogBoxLight: { backgroundColor: "#ffffff" },
   dialogNormalBorder: {
     borderLeftWidth: 4,
     borderLeftColor: "#a855f7",
     borderColor: "#27272a",
+  },
+  dialogNormalBorderLight: {
+    borderLeftWidth: 4,
+    borderLeftColor: "#a855f7",
+    borderColor: "#e2e8f0",
   },
   dialogUrgentBorder: {
     borderLeftWidth: 4,
@@ -480,6 +632,10 @@ const styles = StyleSheet.create({
     borderColor: "#27272a",
     marginLeft: "auto",
   },
+  closeBtnLight: {
+    backgroundColor: "#f1f5f9",
+    borderColor: "#e2e8f0",
+  },
   dialogTitle: {
     fontSize: 26,
     fontWeight: "900",
@@ -487,19 +643,11 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 1,
   },
-  dialogSubContainer: {
-    marginTop: 6,
-    marginBottom: 12,
-  },
-  bodyScroll: {
-    maxHeight: 180,
-    marginVertical: 10,
-  },
-  dialogBody: {
-    fontSize: 14,
-    color: "#a1a1aa",
-    lineHeight: 22,
-  },
+  dialogTitleLight: { color: "#0f172a" },
+  dialogSubContainer: { marginTop: 6, marginBottom: 12 },
+  bodyScroll: { maxHeight: 180, marginVertical: 10 },
+  dialogBody: { fontSize: 14, color: "#a1a1aa", lineHeight: 22 },
+  dialogBodyLight: { color: "#475569" },
   dialogDate: {
     fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
     fontSize: 11,
@@ -507,6 +655,7 @@ const styles = StyleSheet.create({
     marginTop: 14,
     letterSpacing: 1.5,
   },
+  textLightSecondary: { color: "#64748b" },
 });
 
 export default AvisosBanner;
