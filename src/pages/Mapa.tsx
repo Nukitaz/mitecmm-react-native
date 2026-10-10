@@ -8,6 +8,7 @@ import {
   Platform,
   TextInput,
 } from "react-native";
+import { WebView } from "react-native-webview";
 import { useNavigation } from "@react-navigation/native";
 import { Search, User, Book, MapPin } from "lucide-react-native";
 import { Navbar } from "../components/Navbar";
@@ -23,7 +24,6 @@ export const AULAS_UBICACIONES: Record<
   // ==========================================
   //               EDIFICIO L
   // ==========================================
-  // Planta Alta
   LTI: { edificioId: "l", nombreEdificio: "Edificio L", planta: "alta", svgId: "laboratorio_de_tecnologias_de_la_informacion_lti" },
   LR: { edificioId: "l", nombreEdificio: "Edificio L", planta: "alta", svgId: "laboratorio_de_redes_lr" },
   LDS: { edificioId: "l", nombreEdificio: "Edificio L", planta: "alta", svgId: "laboratorio_de_desarrollo_de_software_lds" },
@@ -35,7 +35,6 @@ export const AULAS_UBICACIONES: Record<
   MANTENIMIENTO: { edificioId: "l", nombreEdificio: "Edificio L", planta: "alta", svgId: "mantenimiento_y_telecomunicaciones" },
   DOCENTES_L: { edificioId: "l", nombreEdificio: "Edificio L", planta: "alta", svgId: "sala_de_docentes" },
 
-  // Planta Baja
   LCS: { edificioId: "l", nombreEdificio: "Edificio L", planta: "baja", svgId: "laboratorio_de_computo_sistemas_lcs" },
   LACD: { edificioId: "l", nombreEdificio: "Edificio L", planta: "baja", svgId: "laboratorio_de_analisis_y_ciencia_de_datos_lacd" },
   LWI: { edificioId: "l", nombreEdificio: "Edificio L", planta: "baja", svgId: "laboratorio_de_worstation_ibm_lwi" },
@@ -46,7 +45,6 @@ export const AULAS_UBICACIONES: Record<
   // ==========================================
   //               EDIFICIO B
   // ==========================================
-  // Planta Baja
   LAB_QUIMICA: { edificioId: "b", nombreEdificio: "Edificio B", planta: "baja", svgId: "laboratorio_de_quimica" },
   LAB_FISICA: { edificioId: "b", nombreEdificio: "Edificio B", planta: "baja", svgId: "laboratorio_de_fisica" },
   CB1: { edificioId: "b", nombreEdificio: "Edificio B", planta: "baja", svgId: "aula_cb1" },
@@ -58,7 +56,6 @@ export const AULAS_UBICACIONES: Record<
   MAESTROS_BASICAS: { edificioId: "b", nombreEdificio: "Edificio B", planta: "baja", svgId: "sala_de_maestros_basicas" },
   MAESTROS_ELECTROMECANICA: { edificioId: "b", nombreEdificio: "Edificio B", planta: "baja", svgId: "sala_de_maestros_electromecanica" },
 
-  // Planta Alta
   CB7: { edificioId: "b", nombreEdificio: "Edificio B", planta: "alta", svgId: "aula_cb7" },
   CB8: { edificioId: "b", nombreEdificio: "Edificio B", planta: "alta", svgId: "aula_cb8" },
   CB9: { edificioId: "b", nombreEdificio: "Edificio B", planta: "alta", svgId: "aula_cb9" },
@@ -81,7 +78,6 @@ export const AULAS_UBICACIONES: Record<
   // ==========================================
   //               EDIFICIO I
   // ==========================================
-  // Planta Baja
   I1: { edificioId: "i", nombreEdificio: "Edificio I", planta: "baja", svgId: "aula_i1" },
   I2: { edificioId: "i", nombreEdificio: "Edificio I", planta: "baja", svgId: "aula_i2" },
   I3: { edificioId: "i", nombreEdificio: "Edificio I", planta: "baja", svgId: "aula_i3" },
@@ -94,7 +90,6 @@ export const AULAS_UBICACIONES: Record<
   ALMACEN_INDUSTRIAL: { edificioId: "i", nombreEdificio: "Edificio I", planta: "baja", svgId: "almacen_laboratorio_de_ingenieria_industrial" },
   ALMACEN_GASTRONOMIA: { edificioId: "i", nombreEdificio: "Edificio I", planta: "baja", svgId: "almacen_de_gastronomia" },
 
-  // Planta Alta
   I6: { edificioId: "i", nombreEdificio: "Edificio I", planta: "alta", svgId: "aula_i6" },
   LC1: { edificioId: "i", nombreEdificio: "Edificio I", planta: "alta", svgId: "laboratorio_de_computo_1_lc1" },
   LC2: { edificioId: "i", nombreEdificio: "Edificio I", planta: "alta", svgId: "laboratorio_de_computo_2_lc2" },
@@ -114,7 +109,6 @@ export const AULAS_UBICACIONES: Record<
   // ==========================================
   //               EDIFICIO P
   // ==========================================
-  // Planta Baja
   P1: { edificioId: "p", nombreEdificio: "Edificio P", planta: "baja", svgId: "aula_p1" },
   P2: { edificioId: "p", nombreEdificio: "Edificio P", planta: "baja", svgId: "aula_p2" },
   P3: { edificioId: "p", nombreEdificio: "Edificio P", planta: "baja", svgId: "aula_p3" },
@@ -126,7 +120,6 @@ export const AULAS_UBICACIONES: Record<
   CIIE: { edificioId: "p", nombreEdificio: "Edificio P", planta: "baja", svgId: "centro_de_incubacion_e_innovacion_empresarial_ciie" },
   JEFATURA_GESTION: { edificioId: "p", nombreEdificio: "Edificio P", planta: "baja", svgId: "jefatura_de_gestion_empresarial" },
 
-  // Planta Alta
   P8: { edificioId: "p", nombreEdificio: "Edificio P", planta: "alta", svgId: "aula_p8" },
   P9: { edificioId: "p", nombreEdificio: "Edificio P", planta: "alta", svgId: "aula_p9" },
   P10: { edificioId: "p", nombreEdificio: "Edificio P", planta: "alta", svgId: "aula_p10" },
@@ -141,7 +134,6 @@ export const AULAS_UBICACIONES: Record<
   // ==========================================
   //               EDIFICIO A
   // ==========================================
-  // Planta Baja
   A1: { edificioId: "a", nombreEdificio: "Edificio A", planta: "baja", svgId: "aula_a1" },
   A2: { edificioId: "a", nombreEdificio: "Edificio A", planta: "baja", svgId: "aula_a2" },
   A3: { edificioId: "a", nombreEdificio: "Edificio A", planta: "baja", svgId: "aula_a3" },
@@ -153,7 +145,6 @@ export const AULAS_UBICACIONES: Record<
   RESTIRADORES_20: { edificioId: "a", nombreEdificio: "Edificio A", planta: "baja", svgId: "taller_restiradores_20" },
   PSICOLOGIA_A: { edificioId: "a", nombreEdificio: "Edificio A", planta: "baja", svgId: "psicologia" },
 
-  // Planta Alta
   A6_PA: { edificioId: "a", nombreEdificio: "Edificio A", planta: "alta", svgId: "aula_a6" },
   A7_PA: { edificioId: "a", nombreEdificio: "Edificio A", planta: "alta", svgId: "aula_a7" },
   AULA_MAGNA: { edificioId: "a", nombreEdificio: "Edificio A", planta: "alta", svgId: "aula_magna" },
@@ -170,7 +161,6 @@ export const AULAS_UBICACIONES: Record<
   // ==========================================
   //               EDIFICIO EM
   // ==========================================
-  // Planta Baja
   EM1: { edificioId: "em", nombreEdificio: "Edificio EM", planta: "baja", svgId: "aula_em1" },
   EM2: { edificioId: "em", nombreEdificio: "Edificio EM", planta: "baja", svgId: "aula_em2" },
   EM3: { edificioId: "em", nombreEdificio: "Edificio EM", planta: "baja", svgId: "aula_em3" },
@@ -185,7 +175,6 @@ export const AULAS_UBICACIONES: Record<
   SOLDADURA: { edificioId: "em", nombreEdificio: "Edificio EM", planta: "baja", svgId: "area_de_soldadura" },
   LAB_MANUFACTURA_EM: { edificioId: "em", nombreEdificio: "Edificio EM", planta: "baja", svgId: "laboratorio_de_manufactura" },
 
-  // Planta Alta
   EM4: { edificioId: "em", nombreEdificio: "Edificio EM", planta: "alta", svgId: "aula_em4" },
   EM5: { edificioId: "em", nombreEdificio: "Edificio EM", planta: "alta", svgId: "aula_em5" },
   EM6: { edificioId: "em", nombreEdificio: "Edificio EM", planta: "alta", svgId: "aula_em6" },
@@ -217,16 +206,14 @@ type Suggestion = {
   aulaResaltada: string;
 };
 
-// Caché global fuera del componente para que persista al cambiar de pantalla
 let mapaGeneralCache: string | null = null;
 
 const Mapa = () => {
   const navigation = useNavigation<any>();
-  const { isDarkMode } = useTheme(); // Consumo del tema global
+  const { isDarkMode } = useTheme();
   const mapaGeneralUrl = getMapaGeneralUrl();
 
   const [activeBuildingSvgId, setActiveBuildingSvgId] = useState<string | null>(null);
-  // Inicializamos el estado directamente con el valor almacenado en caché (si existe)
   const [svgContent, setSvgContent] = useState<string | null>(mapaGeneralCache);
   const [isMapHovered, setIsMapHovered] = useState(false);
 
@@ -235,7 +222,6 @@ const Mapa = () => {
   const [isFocused, setIsFocused] = useState(false);
   const [sugerencias, setSugerencias] = useState<Suggestion[]>([]);
 
-  // 1. Cargar el texto XML del Mapa (Solo si no está guardado en la caché)
   useEffect(() => {
     if (!mapaGeneralCache) {
       fetch(mapaGeneralUrl)
@@ -248,7 +234,6 @@ const Mapa = () => {
     }
   }, [mapaGeneralUrl]);
 
-  // 2. Autocompletado del buscador
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
       if (busqueda.trim().length < 2) {
@@ -304,29 +289,45 @@ const Mapa = () => {
     return () => clearTimeout(delayDebounceFn);
   }, [busqueda]);
 
-  // 3. Modificar el XML del SVG inyectando estilos CSS nativos
   const processedSvg = useMemo(() => {
     if (!svgContent) return null;
 
     let modifiedXml = svgContent;
-
-    // Aseguramos que el SVG escale al 100% de su contenedor
-    modifiedXml = modifiedXml.replace(/<svg/, '<svg width="100%" height="100%"');
+    
+    // Inyecta el preserveAspectRatio para forzar que el mapa se contenga completo en la pantalla
+    modifiedXml = modifiedXml.replace(
+      /<svg/,
+      '<svg width="100%" height="100%" preserveAspectRatio="xMidYMid meet"'
+    );
 
     Object.keys(EDIFICIOS_CLICKEABLES).forEach((svgId) => {
       const isHovered = activeBuildingSvgId === svgId;
       const regex = new RegExp(`(<[^>]+id="${svgId}"[^>]*)(style="[^"]*")?`, "g");
 
       modifiedXml = modifiedXml.replace(regex, (match, p1) => {
+        // Área extendida de clic y trazo táctil
+        const extendedClickStyle = "pointer-events: all; cursor: pointer; stroke-width: 12px; stroke: transparent;";
         if (isHovered) {
-          return `${p1} style="cursor:pointer; filter: drop-shadow(0px 0px 10px #a855f7); transition: all 0.2s;"`;
+          return `${p1} style="${extendedClickStyle} filter: drop-shadow(0px 0px 10px #a855f7); transition: all 0.2s;"`;
         }
-        return `${p1} style="cursor:pointer;"`;
+        return `${p1} style="${extendedClickStyle}"`;
       });
     });
 
     return modifiedXml;
   }, [svgContent, activeBuildingSvgId]);
+
+  const handleElementClick = (targetId: string) => {
+    if (!targetId) return;
+
+    const edificio = EDIFICIOS_CLICKEABLES[targetId];
+    if (edificio) {
+      navigation.navigate("Edificio", {
+        id: edificio.id,
+        nombre: edificio.nombre,
+      });
+    }
+  };
 
   const handleSelectSuggestion = (item: Suggestion) => {
     setBusqueda(item.label);
@@ -411,7 +412,6 @@ const Mapa = () => {
                 />
               </View>
 
-              {/* MENÚ FLOTANTE CON ESTADO DE SIN RESULTADOS */}
               {isFocused && busqueda.trim().length >= 2 && (
                 <View
                   style={[
@@ -444,7 +444,6 @@ const Mapa = () => {
                       </TouchableOpacity>
                     ))
                   ) : (
-                    /* MENSAJE CUANDO LA BÚSQUEDA ES VACÍA */
                     <View style={styles.noResultsContainer}>
                       <Text
                         style={[
@@ -500,13 +499,7 @@ const Mapa = () => {
                   },
                   onClick: (e: any) => {
                     const targetId = e.target?.id || e.target?.parentElement?.id;
-                    const edificio = EDIFICIOS_CLICKEABLES[targetId];
-                    if (edificio) {
-                      navigation.navigate("Edificio", {
-                        id: edificio.id,
-                        nombre: edificio.nombre,
-                      });
-                    }
+                    handleElementClick(targetId);
                   },
                 } as any)}
               >
@@ -517,13 +510,93 @@ const Mapa = () => {
                       dangerouslySetInnerHTML={{ __html: processedSvg }}
                     />
                   ) : (
-                    <Text style={{ color: isDarkMode ? "#71717a" : "#64748b" }}>
-                      Versión nativa disponible
-                    </Text>
+                    <WebView
+                      originWhitelist={["*"]}
+                      source={{
+                        html: `
+                          <!DOCTYPE html>
+                          <html>
+                            <head>
+                              <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.2, maximum-scale=5.0, user-scalable=yes">
+                              <style>
+                                * { -webkit-tap-highlight-color: transparent; }
+                                body, html {
+                                  margin: 0;
+                                  padding: 0;
+                                  width: 100%;
+                                  height: 100%;
+                                  background-color: #08080a;
+                                  display: flex;
+                                  justify-content: center;
+                                  align-items: center;
+                                  overflow: hidden;
+                                  touch-action: manipulation;
+                                }
+                                svg {
+                                  width: 100%;
+                                  height: 100%;
+                                  max-width: 100%;
+                                  max-height: 100%;
+                                  object-fit: contain;
+                                }
+                              </style>
+                            </head>
+                            <body>
+                              ${processedSvg}
+                              <script>
+                                var isHandled = false;
+
+                                function processClick(e) {
+                                  if (isHandled) return;
+                                  var target = e.target;
+                                  while (target && target !== document.body) {
+                                    if (target.id) {
+                                      isHandled = true;
+                                      window.ReactNativeWebView.postMessage(JSON.stringify({
+                                        type: 'BUILDING_CLICK',
+                                        id: target.id
+                                      }));
+                                      setTimeout(function() { isHandled = false; }, 400);
+                                      break;
+                                    }
+                                    target = target.parentElement;
+                                  }
+                                }
+
+                                document.addEventListener('touchend', function(e) {
+                                  if (e.changedTouches && e.changedTouches.length > 0) {
+                                    var touch = e.changedTouches[0];
+                                    var element = document.elementFromPoint(touch.clientX, touch.clientY);
+                                    if (element) {
+                                      processClick({ target: element });
+                                    }
+                                  }
+                                }, { passive: true });
+
+                                document.addEventListener('click', processClick);
+                              </script>
+                            </body>
+                          </html>
+                        `,
+                      }}
+                      style={{ flex: 1, backgroundColor: "transparent" }}
+                      scrollEnabled={false}
+                      scalesPageToFit={true}
+                      onMessage={(event) => {
+                        try {
+                          const data = JSON.parse(event.nativeEvent.data);
+                          if (data.type === "BUILDING_CLICK" && data.id) {
+                            handleElementClick(data.id);
+                          }
+                        } catch (e) {
+                          console.error("Error al procesar mensaje del WebView:", e);
+                        }
+                      }}
+                    />
                   )
                 ) : (
-                  <Text style={{ color: isDarkMode ? "#71717a" : "#64748b" }}>
-                    Cargando mapa general...
+                  <Text style={{ color: "#71717a", textAlign: "center", marginTop: 20 }}>
+                    Cargando Mapa del Campus...
                   </Text>
                 )}
               </View>
@@ -536,7 +609,6 @@ const Mapa = () => {
 };
 
 const styles = StyleSheet.create({
-  /* PANTALLA Y ESTRUCTURA GENERAL */
   screen: {
     flex: 1,
     backgroundColor: "#08080a",
@@ -583,8 +655,6 @@ const styles = StyleSheet.create({
   subtitleLight: {
     color: "#64748b",
   },
-
-  /* SIN RESULTADOS */
   noResultsContainer: {
     paddingVertical: 18,
     paddingHorizontal: 20,
@@ -601,8 +671,6 @@ const styles = StyleSheet.create({
   noResultsTextLight: {
     color: "#64748b",
   },
-
-  /* BUSCADOR */
   searchWrapper: {
     width: "100%",
     maxWidth: 600,
@@ -648,8 +716,6 @@ const styles = StyleSheet.create({
   searchInputLight: {
     color: "#0f172a",
   },
-
-  /* DROPDOWN SUGERENCIAS */
   dropdownContainer: {
     position: "absolute",
     top: 54,
@@ -708,14 +774,12 @@ const styles = StyleSheet.create({
     color: "#a855f7",
     letterSpacing: 2,
   },
-
-  /* CONTENEDOR DEL MAPA */
   mapCard: {
     backgroundColor: "#0d0d10",
     borderRadius: 6,
     borderWidth: 1,
     borderColor: "#27272a",
-    padding: 16,
+    padding: 12,
     width: "100%",
     ...(Platform.OS === "web"
       ? ({
@@ -776,8 +840,6 @@ const styles = StyleSheet.create({
     color: "#a855f7",
     fontWeight: "bold",
   },
-
-  /* CANVAS SVG */
   canvasContainer: {
     width: "100%",
     backgroundColor: "#08080a",
@@ -794,10 +856,8 @@ const styles = StyleSheet.create({
   mapWrapper: {
     position: "relative",
     width: "100%",
-    aspectRatio: 1.43,
+    aspectRatio: Platform.OS === "web" ? 1.43 : 1.3,
   },
-
-  /* TEXTO SECUNDARIO CLARO */
   textLightSecondary: {
     color: "#64748b",
   },

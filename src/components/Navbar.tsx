@@ -5,7 +5,9 @@ import {
   StyleSheet,
   TouchableOpacity,
   Platform,
+  StatusBar,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Sun, Moon, RotateCw } from "lucide-react-native";
 import { useTheme } from "../context/ThemeContext";
@@ -39,7 +41,6 @@ export const Navbar = () => {
     return () => clearInterval(timer);
   }, []);
 
-  // Función para recargar la página en Web
   const handleReload = () => {
     if (Platform.OS === "web" && typeof window !== "undefined") {
       window.location.reload();
@@ -49,167 +50,176 @@ export const Navbar = () => {
   const isActive = (screenName: string) => route.name === screenName;
 
   return (
-    <View style={[styles.navContainer, !isDarkMode && styles.navContainerLight]}>
-      {/* 1. LOGO */}
-      <TouchableOpacity
-        style={styles.logoContainer}
-        activeOpacity={0.7}
-        onPress={() => navigation.navigate("Index")}
-      >
-        <View style={styles.logoSquare} />
-        <Text style={[styles.logoText, !isDarkMode && styles.logoTextLight]}>
-          MiTecmm
-        </Text>
-      </TouchableOpacity>
+    <SafeAreaView
+      edges={["top"]}
+      style={[styles.safeArea, !isDarkMode && styles.safeAreaLight]}
+    >
+      <View style={[styles.navContainer, !isDarkMode && styles.navContainerLight]}>
+        {/* FILA PRINCIPAL: LOGO + CONTROLES */}
+        <View style={styles.topRow}>
+          {/* LOGO */}
+          <TouchableOpacity
+            style={styles.logoContainer}
+            activeOpacity={0.7}
+            onPress={() => navigation.navigate("Index")}
+          >
+            <View style={styles.logoSquare} />
+            <Text style={[styles.logoText, !isDarkMode && styles.logoTextLight]}>
+              MiTecmm
+            </Text>
+          </TouchableOpacity>
 
-      {/* 2. NAVEGACIÓN CENTRADA */}
-      <View style={styles.centerNav}>
-        <TouchableOpacity
-          style={[
-            styles.navBtn,
-            isActive("Index") &&
-              (isDarkMode ? styles.navBtnActiveDark : styles.navBtnActiveLight),
-          ]}
-          onPress={() => navigation.navigate("Index")}
-          activeOpacity={0.7}
-        >
-          <Text
+          {/* CONTROLES (TEMA Y RELOJ SOLO EN WEB) */}
+          <View style={styles.rightSection}>
+            <View
+              style={[
+                styles.themeToggleContainer,
+                !isDarkMode && styles.themeToggleContainerLight,
+              ]}
+            >
+              <TouchableOpacity
+                style={[
+                  styles.themeBtn,
+                  !isDarkMode && styles.themeBtnActiveLight,
+                ]}
+                onPress={() => isDarkMode && toggleTheme()}
+                activeOpacity={0.7}
+              >
+                <Sun size={13} color={!isDarkMode ? "#a855f7" : "#71717a"} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.themeBtn,
+                  isDarkMode && styles.themeBtnActiveDark,
+                ]}
+                onPress={() => !isDarkMode && toggleTheme()}
+                activeOpacity={0.7}
+              >
+                <Moon size={13} color={isDarkMode ? "#ffffff" : "#71717a"} />
+              </TouchableOpacity>
+            </View>
+
+            {/* RELOJ / REINICIAR (SOLO WEB PARA NO SATURAR EL CELULAR) */}
+            {Platform.OS === "web" && (
+              <TouchableOpacity
+                style={[styles.clockBadge, !isDarkMode && styles.clockBadgeLight]}
+                onPress={handleReload}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.clockText, !isDarkMode && styles.clockTextLight]}>
+                  {timeString || "09/10/2026 23:35:47"}
+                </Text>
+                <RotateCw
+                  size={12}
+                  color={isDarkMode ? "#a1a1aa" : "#64748b"}
+                  style={styles.refreshIcon}
+                />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {/* NAVEGACIÓN EN SEGUNDA FILA O ENLACES CENTRADOS */}
+        <View style={styles.linksRow}>
+          <TouchableOpacity
             style={[
-              styles.navBtnText,
-              !isDarkMode && styles.navBtnTextLight,
+              styles.navBtn,
               isActive("Index") &&
-                (isDarkMode ? styles.navBtnTextActiveDark : styles.navBtnTextActiveLight),
+                (isDarkMode ? styles.navBtnActiveDark : styles.navBtnActiveLight),
             ]}
+            onPress={() => navigation.navigate("Index")}
+            activeOpacity={0.7}
           >
-            Inicio
-          </Text>
-        </TouchableOpacity>
+            <Text
+              style={[
+                styles.navBtnText,
+                !isDarkMode && styles.navBtnTextLight,
+                isActive("Index") &&
+                  (isDarkMode ? styles.navBtnTextActiveDark : styles.navBtnTextActiveLight),
+              ]}
+            >
+              Inicio
+            </Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[
-            styles.navBtn,
-            (isActive("Mapa") || isActive("Edificio")) &&
-              (isDarkMode ? styles.navBtnActiveDark : styles.navBtnActiveLight),
-          ]}
-          onPress={() => navigation.navigate("Mapa")}
-          activeOpacity={0.7}
-        >
-          <Text
+          <TouchableOpacity
             style={[
-              styles.navBtnText,
-              !isDarkMode && styles.navBtnTextLight,
+              styles.navBtn,
               (isActive("Mapa") || isActive("Edificio")) &&
-                (isDarkMode ? styles.navBtnTextActiveDark : styles.navBtnTextActiveLight),
+                (isDarkMode ? styles.navBtnActiveDark : styles.navBtnActiveLight),
             ]}
+            onPress={() => navigation.navigate("Mapa")}
+            activeOpacity={0.7}
           >
-            Mapa
-          </Text>
-        </TouchableOpacity>
+            <Text
+              style={[
+                styles.navBtnText,
+                !isDarkMode && styles.navBtnTextLight,
+                (isActive("Mapa") || isActive("Edificio")) &&
+                  (isDarkMode ? styles.navBtnTextActiveDark : styles.navBtnTextActiveLight),
+              ]}
+            >
+              Mapa
+            </Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[
-            styles.navBtn,
-            isActive("Profesores") &&
-              (isDarkMode ? styles.navBtnActiveDark : styles.navBtnActiveLight),
-          ]}
-          onPress={() => navigation.navigate("Profesores")}
-          activeOpacity={0.7}
-        >
-          <Text
+          <TouchableOpacity
             style={[
-              styles.navBtnText,
-              !isDarkMode && styles.navBtnTextLight,
+              styles.navBtn,
               isActive("Profesores") &&
-                (isDarkMode ? styles.navBtnTextActiveDark : styles.navBtnTextActiveLight),
+                (isDarkMode ? styles.navBtnActiveDark : styles.navBtnActiveLight),
             ]}
-          >
-            Profesores
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* 3. TOGGLE TEMA + STATUS + BOTÓN REINICIAR PÁGINA */}
-      <View style={styles.rightSection}>
-        <View
-          style={[
-            styles.themeToggleContainer,
-            !isDarkMode && styles.themeToggleContainerLight,
-          ]}
-        >
-          <TouchableOpacity
-            style={[
-              styles.themeBtn,
-              !isDarkMode && styles.themeBtnActiveLight,
-            ]}
-            onPress={() => isDarkMode && toggleTheme()}
+            onPress={() => navigation.navigate("Profesores")}
             activeOpacity={0.7}
           >
-            <Sun size={13} color={!isDarkMode ? "#a855f7" : "#71717a"} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.themeBtn,
-              isDarkMode && styles.themeBtnActiveDark,
-            ]}
-            onPress={() => !isDarkMode && toggleTheme()}
-            activeOpacity={0.7}
-          >
-            <Moon size={13} color={isDarkMode ? "#ffffff" : "#71717a"} />
+            <Text
+              style={[
+                styles.navBtnText,
+                !isDarkMode && styles.navBtnTextLight,
+                isActive("Profesores") &&
+                  (isDarkMode ? styles.navBtnTextActiveDark : styles.navBtnTextActiveLight),
+              ]}
+            >
+              Profesores
+            </Text>
           </TouchableOpacity>
         </View>
-
-        <View style={styles.statusBadge}>
-          <Text style={[styles.statusLabel, !isDarkMode && styles.textLightSecondary]}>
-            [ DB_STATUS: <Text style={styles.statusOnline}>ONLINE</Text> ]
-          </Text>
-        </View>
-
-        {/* BOTÓN DE REINICIAR PÁGINA */}
-        <TouchableOpacity
-          style={[styles.clockBadge, !isDarkMode && styles.clockBadgeLight]}
-          onPress={handleReload}
-          activeOpacity={0.7}
-        >
-          <Text style={[styles.clockText, !isDarkMode && styles.clockTextLight]}>
-            {timeString || "09/10/2026 22:31:31"}
-          </Text>
-          <RotateCw
-            size={12}
-            color={isDarkMode ? "#a1a1aa" : "#64748b"}
-            style={styles.refreshIcon}
-          />
-        </TouchableOpacity>
       </View>
-    </View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  navContainer: {
-    width: "100%",
-    height: 60,
+  safeArea: {
     backgroundColor: "#08080a",
     borderBottomWidth: 1,
     borderBottomColor: "#18181c",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 24,
     zIndex: 1000,
-    position: "relative",
+  },
+  safeAreaLight: {
+    backgroundColor: "#ffffff",
+    borderBottomColor: "#e2e8f0",
+  },
+  navContainer: {
+    width: "100%",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
   navContainerLight: {
     backgroundColor: "#ffffff",
-    borderBottomColor: "#e2e8f0",
+  },
+  topRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
   },
   logoContainer: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    zIndex: 10,
-    paddingVertical: 8,
-    cursor: Platform.OS === "web" ? "pointer" : "auto",
+    gap: 8,
+    paddingVertical: 4,
   },
   logoSquare: {
     width: 12,
@@ -218,7 +228,7 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   logoText: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "900",
     color: "#ffffff",
     letterSpacing: -0.5,
@@ -226,51 +236,10 @@ const styles = StyleSheet.create({
   logoTextLight: {
     color: "#0f172a",
   },
-  centerNav: {
-    position: "absolute",
-    left: "50%",
-    ...(Platform.OS === "web"
-      ? { transform: "translateX(-50%)" as any }
-      : { transform: [{ translateX: -100 }] }),
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 6,
-    zIndex: 5,
-  },
-  navBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 4,
-    cursor: Platform.OS === "web" ? "pointer" : "auto",
-  },
-  navBtnActiveDark: {
-    backgroundColor: "#1e112a",
-  },
-  navBtnActiveLight: {
-    backgroundColor: "#f1f5f9",
-  },
-  navBtnText: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#94a3b8",
-  },
-  navBtnTextLight: {
-    color: "#64748b",
-  },
-  navBtnTextActiveDark: {
-    color: "#c084fc",
-    fontWeight: "bold",
-  },
-  navBtnTextActiveLight: {
-    color: "#a855f7",
-    fontWeight: "bold",
-  },
   rightSection: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    zIndex: 10,
+    gap: 8,
   },
   themeToggleContainer: {
     flexDirection: "row",
@@ -287,8 +256,8 @@ const styles = StyleSheet.create({
     borderColor: "#e2e8f0",
   },
   themeBtn: {
-    paddingHorizontal: 7,
-    paddingVertical: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
     borderRadius: 3,
   },
   themeBtnActiveDark: {
@@ -296,38 +265,17 @@ const styles = StyleSheet.create({
   },
   themeBtnActiveLight: {
     backgroundColor: "#ffffff",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  statusBadge: {
-    paddingHorizontal: 4,
-  },
-  statusLabel: {
-    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
-    fontSize: 11,
-    color: "#71717a",
-  },
-  textLightSecondary: {
-    color: "#64748b",
-  },
-  statusOnline: {
-    color: "#a855f7",
-    fontWeight: "bold",
   },
   clockBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
     borderWidth: 1,
     borderColor: "#27272a",
     backgroundColor: "#0d0d10",
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 4,
-    cursor: Platform.OS === "web" ? "pointer" : "auto",
   },
   clockBadgeLight: {
     backgroundColor: "#ffffff",
@@ -335,7 +283,7 @@ const styles = StyleSheet.create({
   },
   clockText: {
     fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
-    fontSize: 11,
+    fontSize: 10,
     color: "#ffffff",
   },
   clockTextLight: {
@@ -343,6 +291,41 @@ const styles = StyleSheet.create({
   },
   refreshIcon: {
     marginLeft: 2,
+  },
+  linksRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 6,
+    paddingTop: 4,
+  },
+  navBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  navBtnActiveDark: {
+    backgroundColor: "#1e112a",
+  },
+  navBtnActiveLight: {
+    backgroundColor: "#f1f5f9",
+  },
+  navBtnText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#94a3b8",
+  },
+  navBtnTextLight: {
+    color: "#64748b",
+  },
+  navBtnTextActiveDark: {
+    color: "#c084fc",
+    fontWeight: "bold",
+  },
+  navBtnTextActiveLight: {
+    color: "#a855f7",
+    fontWeight: "bold",
   },
 });
 

@@ -7,6 +7,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Platform,
+  useWindowDimensions,
 } from "react-native";
 import { Search, User, Book, MapPin, Users } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
@@ -27,6 +28,10 @@ type Suggestion = {
 export const Index = () => {
   const navigation = useNavigation<any>();
   const { isDarkMode } = useTheme();
+  const { width } = useWindowDimensions();
+
+  // Se considera pantalla Web / Escritorio cuando el ancho supera los 768px
+  const isDesktop = width >= 768 || Platform.OS === "web";
 
   // Estados del Buscador
   const [searchTerm, setSearchTerm] = useState("");
@@ -286,8 +291,13 @@ export const Index = () => {
           {/* Banner de Avisos con Marquee + Historial */}
           <AvisosBanner />
 
-          {/* Módulos en 2 Columnas Horizontales */}
-          <View style={styles.modulesGrid}>
+          {/* Módulos alineados en Lado a Lado para Web/Desktop */}
+          <View
+            style={[
+              styles.modulesGrid,
+              isDesktop && styles.modulesGridDesktop,
+            ]}
+          >
             <ModuleCard
               onPress={() => navigation.navigate("Mapa")}
               code="MOD_01"
@@ -512,21 +522,25 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
   },
 
-  /* MÓDULOS EN 2 COLUMNAS HORIZONTALES */
+  /* MÓDULOS EN 2 COLUMNAS HORIZONTALES EN ESCRITORIO */
   modulesGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+    flexDirection: "column",
     gap: 16,
     zIndex: 1,
+    width: "100%",
+  },
+  modulesGridDesktop: {
+    flexDirection: "row",
+    alignItems: "stretch",
   },
   card: {
     flex: 1,
-    minWidth: 320,
+    width: "100%",
     backgroundColor: "#0d0d10",
     borderRadius: 6,
     borderWidth: 1,
     borderColor: "#27272a",
-    padding: 24,
+    padding: 20,
     justifyContent: "space-between",
   },
   cardLight: {

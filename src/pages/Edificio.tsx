@@ -1,13 +1,13 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   Platform,
   TextInput,
 } from "react-native";
+import { WebView } from "react-native-webview";
 import { useNavigation } from "@react-navigation/native";
 import { Search, User, Book, MapPin } from "lucide-react-native";
 import { Navbar } from "../components/Navbar";
@@ -24,13 +24,53 @@ type Suggestion = {
   aulaResaltada: string;
 };
 
+const formatearNombreEdificio = (id: string, nombreOriginal?: string) => {
+  if (
+    nombreOriginal &&
+    !nombreOriginal.toLowerCase().includes("edificio edificio") &&
+    !nombreOriginal.toLowerCase().startsWith("edificio _")
+  ) {
+    return nombreOriginal;
+  }
+  if (!id) return "Edificio";
+
+  let limpio = id
+    .toLowerCase()
+    .replace(/^edificio_?/, "")
+    .replace(/_copy$/, "")
+    .replace(/^_+/, "")
+    .trim();
+
+  const lugaresEspeciales: Record<string, string> = {
+    estacionamiento: "Estacionamiento",
+    cafeteria: "Cafetería",
+    canchas: "Canchas Deportivas",
+    domo: "Domo Cultural",
+    "1_2": "Edificio 1 y 2",
+    em: "Edificio EM",
+    e: "Edificio EM",
+  };
+
+  if (lugaresEspeciales[limpio]) {
+    return lugaresEspeciales[limpio];
+  }
+
+  return `Edificio ${limpio.toUpperCase()}`;
+};
+
 const Edificio = ({ route }: any) => {
   const navigation = useNavigation<any>();
   const { isDarkMode } = useTheme();
 
   const edificioId = route?.params?.id || "p";
-  const nombreEdificio = route?.params?.nombre || `Edificio ${edificioId.toUpperCase()}`;
+  const nombreEdificio = formatearNombreEdificio(
+    edificioId,
+    route?.params?.nombre
+  );
   const plantaInicial = route?.params?.plantaInicial || "baja";
+
+  const webViewBajaRef = useRef<any>(null);
+  const webViewAltaRef = useRef<any>(null);
 
   // Estados del mapa
   const [aulaResaltada, setAulaResaltada] = useState<string | null>(
@@ -39,7 +79,7 @@ const Edificio = ({ route }: any) => {
   const [planta, setPlanta] = useState<"baja" | "alta">(plantaInicial);
   const [isMapHovered, setIsMapHovered] = useState(false);
 
-  // XMLs individuales para superposición
+  // XMLs individuales
   const [svgBaja, setSvgBaja] = useState<string | null>(null);
   const [svgAlta, setSvgAlta] = useState<string | null>(null);
 
@@ -53,20 +93,17 @@ const Edificio = ({ route }: any) => {
 
   const handleQuitarResaltado = () => {
     setAulaResaltada(null);
-    // Limpia el parámetro de la URL
     navigation.setParams({
       aulaResaltada: undefined,
     });
   };
 
-  // 1. Escuchar cambios de parámetros
   useEffect(() => {
     if (route?.params?.aulaResaltada !== undefined) {
       setAulaResaltada(route.params.aulaResaltada);
     }
   }, [route?.params?.aulaResaltada]);
 
-  // 2. Cargar ambos SVGs al montar o cambiar de edificio
   useEffect(() => {
     fetch(planoBajaUrl)
       .then((res) => res.text())
@@ -79,7 +116,6 @@ const Edificio = ({ route }: any) => {
       .catch((err) => console.error("Error al cargar Planta Alta:", err));
   }, [edificioId]);
 
-  // 3. Autocompletado del buscador
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
       if (busqueda.trim().length < 2) {
@@ -159,7 +195,6 @@ const Edificio = ({ route }: any) => {
       if (ubicacion.edificioId === edificioId) {
         setPlanta(ubicacion.planta);
         setAulaResaltada(item.aulaResaltada);
-        // Sincroniza la URL con el nuevo salón resaltado
         navigation.setParams({
           aulaResaltada: item.aulaResaltada,
           plantaInicial: ubicacion.planta,
@@ -175,46 +210,165 @@ const Edificio = ({ route }: any) => {
     }
   };
 
-  // Inyección de CSS y animación para el resaltado del salón seleccionado
-  const processSvgContent = (rawSvg: string | null, isAltaLayer: boolean) => {
-    if (!rawSvg) return null;
+  // Obtiene el ID exacto del SVG para el aula resaltada
+  const targetSvgId = useMemo(() => {
+    if (!aulaResaltada) return null;
 
-    let modifiedXml = rawSvg.replace(/<svg/, '<svg width="100%" height="100%"');
+    const claveUpper = aulaResaltada.toUpperCase();
+    const ubicacion = AULAS_UBICACIONES[claveUpper];
 
-    if (aulaResaltada) {
-      const ubicacion = AULAS_UBICACIONES[aulaResaltada.toUpperCase()];
-      const esEnEstaPlanta =
-        ubicacion &&
-        ubicacion.edificioId === edificioId &&
-        ubicacion.planta === (isAltaLayer ? "alta" : "baja");
-
-      if (esEnEstaPlanta && ubicacion.svgId) {
-        const cssStyle = `
-          <style>
-            #${ubicacion.svgId} {
-              display: inline !important;
-              fill: #a855f7 !important;
-              fill-opacity: 0.75 !important;
-              stroke: #e9d5ff !important;
-              stroke-width: 4px !important;
-              filter: drop-shadow(0px 0px 18px #a855f7);
-              animation: parpadeoSalon 1s infinite alternate;
-            }
-            @keyframes parpadeoSalon {
-              0% { fill-opacity: 0.3; stroke-opacity: 0.4; }
-              100% { fill-opacity: 0.95; stroke-opacity: 1; }
-            }
-          </style>
-        `;
-        modifiedXml = modifiedXml.replace(/<svg[^>]*>/, (match) => `${match}${cssStyle}`);
-      }
+    if (ubicacion && ubicacion.svgId) {
+      return ubicacion.svgId;
     }
 
-    return modifiedXml;
+    // fallback por patrón estándar: aula_cb1, aula_a1, etc.
+    return `aula_${aulaResaltada.toLowerCase()}`;
+  }, [aulaResaltada]);
+
+  const processSvgContent = (rawSvg: string | null) => {
+    if (!rawSvg) return null;
+
+    return rawSvg.replace(
+      /<svg/,
+      '<svg width="100%" height="100%" preserveAspectRatio="xMidYMid meet"'
+    );
   };
 
-  const processedBaja = useMemo(() => processSvgContent(svgBaja, false), [svgBaja, aulaResaltada, edificioId]);
-  const processedAlta = useMemo(() => processSvgContent(svgAlta, true), [svgAlta, aulaResaltada, edificioId]);
+  const processedBaja = useMemo(() => processSvgContent(svgBaja), [svgBaja]);
+  const processedAlta = useMemo(() => processSvgContent(svgAlta), [svgAlta]);
+
+  const renderSvgContent = (svgHtml: string | null, isAltaLayer: boolean) => {
+    if (!svgHtml) return null;
+
+    if (Platform.OS === "web") {
+      return (
+        <div
+          style={{ width: "100%", height: "100%" }}
+          dangerouslySetInnerHTML={{
+            __html: targetSvgId
+              ? svgHtml.replace(
+                  new RegExp(`id="${targetSvgId}"`, "gi"),
+                  `id="${targetSvgId}" class="resaltado-activo"`
+                )
+              : svgHtml,
+          }}
+        />
+      );
+    }
+
+    return (
+      <WebView
+        ref={isAltaLayer ? webViewAltaRef : webViewBajaRef}
+        originWhitelist={["*"]}
+        source={{
+          html: `
+            <!DOCTYPE html>
+            <html>
+              <head>
+                <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.2, maximum-scale=5.0, user-scalable=yes">
+                <style>
+                  * { -webkit-tap-highlight-color: transparent; }
+                  body, html {
+                    margin: 0;
+                    padding: 0;
+                    width: 100%;
+                    height: 100%;
+                    background-color: #08080a;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    overflow: auto;
+                    touch-action: manipulation;
+                  }
+                  svg {
+                    width: 100%;
+                    height: 100%;
+                    max-width: 100%;
+                    max-height: 100%;
+                    object-fit: contain;
+                  }
+                  .resaltado-activo, .resaltado-activo * {
+                    display: inline !important;
+                    fill: #a855f7 !important;
+                    fill-opacity: 0.85 !important;
+                    stroke: #ffffff !important;
+                    stroke-width: 5px !important;
+                    filter: drop-shadow(0px 0px 18px #a855f7) !important;
+                    animation: parpadeoSalon 1s infinite alternate !important;
+                  }
+                  @keyframes parpadeoSalon {
+                    0% { fill-opacity: 0.4; stroke-opacity: 0.5; }
+                    100% { fill-opacity: 0.95; stroke-opacity: 1; }
+                  }
+                </style>
+              </head>
+              <body>
+                ${svgHtml}
+                <script>
+                  var activeTargetId = "${targetSvgId || ''}";
+
+                  function applyHighlight() {
+                    if (!activeTargetId) return;
+                    // Limpia anteriores
+                    var prevs = document.querySelectorAll('.resaltado-activo');
+                    for (var i = 0; i < prevs.length; i++) {
+                      prevs[i].classList.remove('resaltado-activo');
+                    }
+                    // Aplica al target o buscando variantes
+                    var el = document.getElementById(activeTargetId) || 
+                             document.getElementById(activeTargetId.toLowerCase()) || 
+                             document.getElementById(activeTargetId.toUpperCase());
+                    if (el) {
+                      el.classList.add('resaltado-activo');
+                    }
+                  }
+
+                  // Aplica resaltado inicialmente y re-aplica en gestos
+                  applyHighlight();
+                  window.addEventListener('resize', applyHighlight);
+                  document.addEventListener('touchstart', applyHighlight, { passive: true });
+                  document.addEventListener('touchend', applyHighlight, { passive: true });
+
+                  var isHandled = false;
+                  function processClick(e) {
+                    if (isHandled) return;
+                    var target = e.target;
+                    while (target && target !== document.body) {
+                      if (target.id) {
+                        isHandled = true;
+                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                          type: 'AULA_CLICK',
+                          id: target.id
+                        }));
+                        setTimeout(function() { isHandled = false; }, 400);
+                        break;
+                      }
+                      target = target.parentElement;
+                    }
+                  }
+
+                  document.addEventListener('click', processClick);
+                </script>
+              </body>
+            </html>
+          `,
+        }}
+        style={{ flex: 1, backgroundColor: "transparent" }}
+        scrollEnabled={true}
+        scalesPageToFit={true}
+        onMessage={(event) => {
+          try {
+            const data = JSON.parse(event.nativeEvent.data);
+            if (data.type === "AULA_CLICK" && data.id) {
+              setAulaResaltada(data.id.toUpperCase());
+            }
+          } catch (e) {
+            console.error("Error al procesar click en WebView:", e);
+          }
+        }}
+      />
+    );
+  };
 
   const IconoTipo = ({ type }: { type: string }) => {
     switch (type) {
@@ -231,235 +385,212 @@ const Edificio = ({ route }: any) => {
     <View style={[styles.screen, !isDarkMode && styles.screenLight]}>
       <Navbar />
 
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <View style={styles.main}>
-          <View style={styles.headerSection}>
-            <Text style={[styles.modCode, !isDarkMode && styles.textLightSecondary]}>
-              [ MOD_03 · BUILDING_{edificioId.toUpperCase()} ]
-            </Text>
-            <Text style={[styles.title, !isDarkMode && styles.titleLight]}>
-              {nombreEdificio}
-            </Text>
+      <View style={styles.main}>
+        <View style={styles.headerSection}>
+          <Text style={[styles.modCode, !isDarkMode && styles.textLightSecondary]}>
+            [ MOD_03 · BUILDING_{edificioId.toUpperCase()} ]
+          </Text>
+          <Text style={[styles.title, !isDarkMode && styles.titleLight]}>
+            {nombreEdificio}
+          </Text>
 
-            {/* BUSCADOR */}
-            <View style={styles.searchWrapper}>
+          {/* BUSCADOR */}
+          <View style={styles.searchWrapper}>
+            <View
+              style={[
+                styles.searchContainer,
+                !isDarkMode && styles.searchContainerLight,
+                isFocused && (isDarkMode ? styles.searchContainerActive : styles.searchContainerActiveLight),
+              ]}
+            >
+              <Search
+                size={18}
+                color={isFocused ? "#a855f7" : isDarkMode ? "#a1a1aa" : "#64748b"}
+                style={styles.searchIcon}
+              />
+              <TextInput
+                style={[styles.searchInput, !isDarkMode && styles.searchInputLight]}
+                placeholder="Busca un salón, profesor o materia..."
+                placeholderTextColor={isDarkMode ? "#71717a" : "#94a3b8"}
+                value={busqueda}
+                onChangeText={setBusqueda}
+                onFocus={() => setIsFocused(true)}
+                onBlur={() => setTimeout(() => setIsFocused(false), 200)}
+                returnKeyType="search"
+              />
+            </View>
+
+            {isFocused && sugerencias.length > 0 && (
               <View
                 style={[
-                  styles.searchContainer,
-                  !isDarkMode && styles.searchContainerLight,
-                  isFocused && (isDarkMode ? styles.searchContainerActive : styles.searchContainerActiveLight),
+                  styles.dropdownContainer,
+                  !isDarkMode && styles.dropdownContainerLight,
                 ]}
               >
-                <Search
-                  size={18}
-                  color={isFocused ? "#a855f7" : isDarkMode ? "#a1a1aa" : "#64748b"}
-                  style={styles.searchIcon}
-                />
-                <TextInput
-                  style={[styles.searchInput, !isDarkMode && styles.searchInputLight]}
-                  placeholder="Busca un salón, profesor o materia..."
-                  placeholderTextColor={isDarkMode ? "#71717a" : "#94a3b8"}
-                  value={busqueda}
-                  onChangeText={setBusqueda}
-                  onFocus={() => setIsFocused(true)}
-                  onBlur={() => setTimeout(() => setIsFocused(false), 200)}
-                  returnKeyType="search"
-                />
+                {sugerencias.map((sug, index) => (
+                  <TouchableOpacity
+                    key={sug.id}
+                    style={[
+                      styles.dropdownItem,
+                      index !== sugerencias.length - 1 &&
+                        (isDarkMode ? styles.dropdownItemBorder : styles.dropdownItemBorderLight),
+                    ]}
+                    activeOpacity={0.7}
+                    onPress={() => handleSelectSuggestion(sug)}
+                  >
+                    <View style={styles.dropdownLeft}>
+                      <IconoTipo type={sug.type} />
+                      <Text
+                        style={[styles.dropdownLabel, !isDarkMode && styles.dropdownLabelLight]}
+                        numberOfLines={1}
+                      >
+                        {sug.label}
+                      </Text>
+                    </View>
+                    <Text style={styles.dropdownDetail}>{sug.detail}</Text>
+                  </TouchableOpacity>
+                ))}
               </View>
+            )}
+          </View>
+        </View>
 
-              {isFocused && sugerencias.length > 0 && (
-                <View
-                  style={[
-                    styles.dropdownContainer,
-                    !isDarkMode && styles.dropdownContainerLight,
-                  ]}
-                >
-                  {sugerencias.map((sug, index) => (
-                    <TouchableOpacity
-                      key={sug.id}
-                      style={[
-                        styles.dropdownItem,
-                        index !== sugerencias.length - 1 &&
-                          (isDarkMode ? styles.dropdownItemBorder : styles.dropdownItemBorderLight),
-                      ]}
-                      activeOpacity={0.7}
-                      onPress={() => handleSelectSuggestion(sug)}
-                    >
-                      <View style={styles.dropdownLeft}>
-                        <IconoTipo type={sug.type} />
-                        <Text
-                          style={[styles.dropdownLabel, !isDarkMode && styles.dropdownLabelLight]}
-                          numberOfLines={1}
-                        >
-                          {sug.label}
-                        </Text>
-                      </View>
-                      <Text style={styles.dropdownDetail}>{sug.detail}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
+        {/* BANNER DE RESALTADO */}
+        {aulaResaltada && (
+          <View
+            style={[
+              styles.resaltadoBanner,
+              !isDarkMode && styles.resaltadoBannerLight,
+            ]}
+          >
+            <View style={styles.resaltadoLeft}>
+              <View style={styles.resaltadoDot} />
+              <Text style={styles.resaltadoText}>
+                RESALTADO: {aulaResaltada.toUpperCase()}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={handleQuitarResaltado} activeOpacity={0.7}>
+              <Text style={[styles.quitarText, !isDarkMode && styles.quitarTextLight]}>
+                quitar
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* TARJETA DEL PLANO */}
+        <View
+          style={[
+            styles.mapCard,
+            !isDarkMode && styles.mapCardLight,
+            isMapHovered && (isDarkMode ? styles.mapCardHovered : styles.mapCardHoveredLight),
+          ]}
+          {...({
+            onPointerEnter: () => setIsMapHovered(true),
+            onPointerLeave: () => setIsMapHovered(false),
+          } as any)}
+        >
+          <View style={[styles.mapHeader, !isDarkMode && styles.mapHeaderLight]}>
+            <Text style={[styles.mapTag, !isDarkMode && styles.textLightSecondary]}>
+              // PLANTA_{planta.toUpperCase()}_EDIFICIO_{edificioId.toUpperCase()}.SVG
+            </Text>
+            <View style={styles.liveTag}>
+              <View style={styles.liveDot} />
+              <Text style={styles.liveText}>
+                {planta === "alta" ? "STACK 3D ACTIVE" : "LIVE"}
+              </Text>
             </View>
           </View>
 
-          
-
-          {/* BANNER DE RESALTADO */}
-          {aulaResaltada && (
-            <View
-              style={[
-                styles.resaltadoBanner,
-                !isDarkMode && styles.resaltadoBannerLight,
-              ]}
-            >
-              <View style={styles.resaltadoLeft}>
-                <View style={styles.resaltadoDot} />
-                <Text style={styles.resaltadoText}>
-                  RESALTADO: {aulaResaltada.toUpperCase()}
-                </Text>
-              </View>
-              <TouchableOpacity onPress={handleQuitarResaltado} activeOpacity={0.7}>
-                <Text style={[styles.quitarText, !isDarkMode && styles.quitarTextLight]}>
-                  quitar
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* TARJETA DEL PLANO */}
-          <View
-            style={[
-              styles.mapCard,
-              !isDarkMode && styles.mapCardLight,
-              isMapHovered && (isDarkMode ? styles.mapCardHovered : styles.mapCardHoveredLight),
-            ]}
-            {...({
-              onPointerEnter: () => setIsMapHovered(true),
-              onPointerLeave: () => setIsMapHovered(false),
-            } as any)}
-          >
-            <View style={[styles.mapHeader, !isDarkMode && styles.mapHeaderLight]}>
-              <Text style={[styles.mapTag, !isDarkMode && styles.textLightSecondary]}>
-                // PLANTA_{planta.toUpperCase()}_EDIFICIO_{edificioId.toUpperCase()}.SVG
+          <View style={styles.mapContent}>
+            {/* SELECTOR DE PISO (PA / PB) */}
+            <View style={[styles.sidebar, !isDarkMode && styles.sidebarLight]}>
+              <Text style={[styles.sidebarTitle, !isDarkMode && styles.textLightSecondary]}>
+                PISO
               </Text>
-              <View style={styles.liveTag}>
-                <View style={styles.liveDot} />
-                <Text style={styles.liveText}>
-                  {planta === "alta" ? "STACK 3D ACTIVE" : "LIVE"}
-                </Text>
+              <View
+                style={[
+                  styles.floorToggleGroup,
+                  !isDarkMode && styles.floorToggleGroupLight,
+                ]}
+              >
+                <TouchableOpacity
+                  style={[styles.floorBtn, planta === "alta" && styles.floorBtnActive]}
+                  onPress={() => setPlanta("alta")}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.floorBtnText,
+                      !isDarkMode && styles.floorBtnTextLight,
+                      planta === "alta" && styles.floorBtnTextActive,
+                    ]}
+                  >
+                    PA
+                  </Text>
+                </TouchableOpacity>
+                <View style={[styles.divider, !isDarkMode && styles.dividerLight]} />
+                <TouchableOpacity
+                  style={[styles.floorBtn, planta === "baja" && styles.floorBtnActive]}
+                  onPress={() => setPlanta("baja")}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.floorBtnText,
+                      !isDarkMode && styles.floorBtnTextLight,
+                      planta === "baja" && styles.floorBtnTextActive,
+                    ]}
+                  >
+                    PB
+                  </Text>
+                </TouchableOpacity>
               </View>
+              <Text style={[styles.floorLabel, !isDarkMode && styles.textLightSecondary]}>
+                {planta === "alta" ? "↑ ALTA" : "↓ BAJA"}
+              </Text>
             </View>
 
-            <View style={styles.mapContent}>
-              {/* SELECTOR DE PISO (PA / PB) */}
-              <View style={[styles.sidebar, !isDarkMode && styles.sidebarLight]}>
-                <Text style={[styles.sidebarTitle, !isDarkMode && styles.textLightSecondary]}>
-                  PISO
-                </Text>
-                <View
-                  style={[
-                    styles.floorToggleGroup,
-                    !isDarkMode && styles.floorToggleGroupLight,
-                  ]}
-                >
-                  <TouchableOpacity
-                    style={[styles.floorBtn, planta === "alta" && styles.floorBtnActive]}
-                    onPress={() => setPlanta("alta")}
-                    activeOpacity={0.8}
+            {/* CONTENEDOR MULTICAPA PARA EL MAPA SVG (3D OVERLAY) */}
+            <View style={styles.imageContainer}>
+              <View style={styles.mapWrapper}>
+                {/* CAPA 1: PLANTA BAJA */}
+                {processedBaja ? (
+                  <View
+                    style={[
+                      styles.svgLayer,
+                      planta === "alta" && styles.svgBajaUnderlay,
+                    ]}
                   >
-                    <Text
-                      style={[
-                        styles.floorBtnText,
-                        !isDarkMode && styles.floorBtnTextLight,
-                        planta === "alta" && styles.floorBtnTextActive,
-                      ]}
-                    >
-                      PA
-                    </Text>
-                  </TouchableOpacity>
-                  <View style={[styles.divider, !isDarkMode && styles.dividerLight]} />
-                  <TouchableOpacity
-                    style={[styles.floorBtn, planta === "baja" && styles.floorBtnActive]}
-                    onPress={() => setPlanta("baja")}
-                    activeOpacity={0.8}
+                    {renderSvgContent(processedBaja, false)}
+                  </View>
+                ) : (
+                  <Text style={{ color: "#71717a" }}>
+                    Cargando Planta Baja...
+                  </Text>
+                )}
+
+                {/* CAPA 2: PLANTA ALTA SUPERPUESTA CON ANIMACIÓN ELEGANTE */}
+                {processedAlta && (
+                  <View
+                    style={[
+                      styles.svgLayer,
+                      styles.svgAltaOverlay,
+                      planta === "alta" ? styles.svgAltaVisible : styles.svgAltaHidden,
+                    ]}
                   >
-                    <Text
-                      style={[
-                        styles.floorBtnText,
-                        !isDarkMode && styles.floorBtnTextLight,
-                        planta === "baja" && styles.floorBtnTextActive,
-                      ]}
-                    >
-                      PB
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-                <Text style={[styles.floorLabel, !isDarkMode && styles.textLightSecondary]}>
-                  {planta === "alta" ? "↑ ALTA" : "↓ BAJA"}
-                </Text>
-              </View>
-
-              {/* CONTENEDOR MULTICAPA PARA EL MAPA SVG (3D OVERLAY) */}
-              <View style={styles.imageContainer}>
-                <View style={styles.mapWrapper}>
-                  {/* CAPA 1: PLANTA BAJA */}
-                  {processedBaja ? (
-                    <View
-                      style={[
-                        styles.svgLayer,
-                        planta === "alta" && styles.svgBajaUnderlay,
-                      ]}
-                    >
-                      {Platform.OS === "web" ? (
-                        <div
-                          style={{ width: "100%", height: "100%" }}
-                          dangerouslySetInnerHTML={{ __html: processedBaja }}
-                        />
-                      ) : (
-                        <Text style={{ color: "#71717a" }}>
-                          Planta Baja Nativa
-                        </Text>
-                      )}
-                    </View>
-                  ) : (
-                    <Text style={{ color: "#71717a" }}>
-                      Cargando Planta Baja...
-                    </Text>
-                  )}
-
-                  {/* CAPA 2: PLANTA ALTA SUPERPUESTA CON ANIMACIÓN ELEGANTE */}
-                  {processedAlta && (
-                    <View
-                      style={[
-                        styles.svgLayer,
-                        styles.svgAltaOverlay,
-                        planta === "alta" ? styles.svgAltaVisible : styles.svgAltaHidden,
-                      ]}
-                    >
-                      {Platform.OS === "web" ? (
-                        <div
-                          style={{ width: "100%", height: "100%" }}
-                          dangerouslySetInnerHTML={{ __html: processedAlta }}
-                        />
-                      ) : (
-                        <Text style={{ color: "#71717a" }}>
-                          Planta Alta Nativa
-                        </Text>
-                      )}
-                    </View>
-                  )}
-                </View>
+                    {renderSvgContent(processedAlta, true)}
+                  </View>
+                )}
               </View>
             </View>
           </View>
         </View>
-      </ScrollView>
+      </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  /* PANTALLA Y ESTRUCTURA GENERAL */
   screen: {
     flex: 1,
     backgroundColor: "#08080a",
@@ -467,44 +598,39 @@ const styles = StyleSheet.create({
   screenLight: {
     backgroundColor: "#f8fafc",
   },
-  container: {
-    flexGrow: 1,
-  },
   main: {
     flex: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 20,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 12,
     maxWidth: 1100,
     width: "100%",
     alignSelf: "center",
-    zIndex: 1,
   },
   headerSection: {
     alignItems: "center",
-    marginBottom: 24,
+    marginBottom: 10,
     zIndex: 50,
   },
   modCode: {
     fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
-    fontSize: 11,
+    fontSize: 10,
     color: "#71717a",
-    letterSpacing: 2,
+    letterSpacing: 1.5,
   },
   title: {
-    fontSize: 42,
+    fontSize: 28,
     fontWeight: "900",
     color: "#ffffff",
-    marginTop: 8,
+    marginTop: 2,
   },
   titleLight: {
     color: "#0f172a",
   },
-
-  /* BUSCADOR Y DROPDOWN */
   searchWrapper: {
     width: "100%",
     maxWidth: 600,
-    marginTop: 16,
+    marginTop: 8,
     position: "relative",
     zIndex: 100,
   },
@@ -515,7 +641,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#27272a",
     borderRadius: 4,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
   },
   searchContainerLight: {
     backgroundColor: "#ffffff",
@@ -534,13 +660,13 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
   },
   searchIcon: {
-    marginRight: 10,
+    marginRight: 8,
   },
   searchInput: {
     flex: 1,
-    paddingVertical: 14,
+    paddingVertical: 8,
     color: "#ffffff",
-    fontSize: 15,
+    fontSize: 14,
     outlineStyle: "none" as any,
   },
   searchInputLight: {
@@ -548,7 +674,7 @@ const styles = StyleSheet.create({
   },
   dropdownContainer: {
     position: "absolute",
-    top: 54,
+    top: 44,
     left: 0,
     right: 0,
     backgroundColor: "#18181c",
@@ -571,8 +697,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
   },
   dropdownItemBorder: {
     borderBottomWidth: 1,
@@ -585,13 +711,13 @@ const styles = StyleSheet.create({
   dropdownLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
     flex: 1,
     paddingRight: 10,
   },
   dropdownLabel: {
     color: "#ffffff",
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "bold",
     textTransform: "uppercase",
   },
@@ -604,8 +730,6 @@ const styles = StyleSheet.create({
     color: "#a855f7",
     letterSpacing: 2,
   },
-
-  /* BANNER RESALTADO */
   resaltadoBanner: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -614,9 +738,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(168, 85, 247, 0.3)",
     borderRadius: 4,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 8,
     width: "100%",
     maxWidth: 700,
     alignSelf: "center",
@@ -628,7 +752,7 @@ const styles = StyleSheet.create({
   resaltadoLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
   },
   resaltadoDot: {
     width: 6,
@@ -641,21 +765,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#c084fc",
     fontWeight: "bold",
-    letterSpacing: 2,
+    letterSpacing: 1.5,
   },
   quitarText: {
     fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
     fontSize: 11,
     color: "#71717a",
-    letterSpacing: 1.5,
+    letterSpacing: 1,
     textDecorationLine: "underline",
   },
   quitarTextLight: {
     color: "#6b21a8",
   },
-
-  /* PLANO Y TARJETA */
   mapCard: {
+    flex: 1,
     backgroundColor: "#0d0d10",
     borderRadius: 6,
     borderWidth: 1,
@@ -672,33 +795,19 @@ const styles = StyleSheet.create({
   mapCardLight: {
     backgroundColor: "#ffffff",
     borderColor: "#e2e8f0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
   },
   mapCardHovered: {
     borderColor: "#a855f7",
-    shadowColor: "#a855f7",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 20,
-    elevation: 10,
   },
   mapCardHoveredLight: {
     borderColor: "#a855f7",
-    shadowColor: "#a855f7",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 8,
   },
   mapHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: "#1e1e24",
   },
@@ -707,9 +816,8 @@ const styles = StyleSheet.create({
   },
   mapTag: {
     fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
-    fontSize: 11,
+    fontSize: 10,
     color: "#71717a",
-    letterSpacing: 1.5,
   },
   liveTag: {
     flexDirection: "row",
@@ -727,34 +835,32 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: "#a855f7",
     fontWeight: "bold",
-    letterSpacing: 1,
   },
   mapContent: {
+    flex: 1,
     flexDirection: "row",
-    minHeight: 500,
   },
   sidebar: {
-    width: 80,
+    width: 60,
     borderRightWidth: 1,
     borderRightColor: "#1e1e24",
     alignItems: "center",
-    paddingVertical: 24,
+    paddingVertical: 14,
   },
   sidebarLight: {
     borderRightColor: "#e2e8f0",
   },
   sidebarTitle: {
     fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
-    fontSize: 10,
+    fontSize: 9,
     color: "#71717a",
-    marginBottom: 16,
-    letterSpacing: 1.5,
+    marginBottom: 10,
   },
   floorToggleGroup: {
     borderWidth: 1,
     borderColor: "#27272a",
     borderRadius: 4,
-    width: 50,
+    width: 40,
     backgroundColor: "#121215",
     overflow: "hidden",
   },
@@ -763,7 +869,7 @@ const styles = StyleSheet.create({
     borderColor: "#e2e8f0",
   },
   floorBtn: {
-    height: 50,
+    height: 40,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "transparent",
@@ -780,7 +886,7 @@ const styles = StyleSheet.create({
   },
   floorBtnText: {
     fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "bold",
     color: "#71717a",
   },
@@ -792,24 +898,21 @@ const styles = StyleSheet.create({
   },
   floorLabel: {
     fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
-    fontSize: 10,
+    fontSize: 9,
     color: "#71717a",
-    marginTop: 16,
-    letterSpacing: 1,
+    marginTop: 10,
   },
-
-  /* CONTENEDOR MULTICAPA SVG (FONDO OSCURO PERMANENTE) */
   imageContainer: {
     flex: 1,
     backgroundColor: "#08080a",
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
+    padding: 6,
   },
   mapWrapper: {
     position: "relative",
     width: "100%",
-    aspectRatio: 1.5,
+    height: "100%",
   },
   svgLayer: {
     position: "absolute",
@@ -827,29 +930,31 @@ const styles = StyleSheet.create({
         } as any)
       : {}),
   },
-
-  /* ESTILOS DE TRANSICIÓN PARA PLANTA BAJA (UNDERLAY MÁS OSCURO Y TENUE) */
   svgBajaUnderlay: {
     opacity: 0.12,
-    filter: "contrast(0.6) brightness(0.4) blur(1.5px)",
+    ...(Platform.OS === "web"
+      ? ({
+          filter: "contrast(0.6) brightness(0.4) blur(1.5px)",
+        } as any)
+      : {}),
   },
-
-  /* ESTILOS DE TRANSICIÓN PARA PLANTA ALTA (OVERLAY FLOATING) */
   svgAltaOverlay: {
     zIndex: 10,
   },
   svgAltaVisible: {
     opacity: 1,
     transform: [{ translateY: 0 }, { scale: 1 }],
-    filter: "drop-shadow(0px 12px 20px rgba(168, 85, 247, 0.3))",
+    ...(Platform.OS === "web"
+      ? ({
+          filter: "drop-shadow(0px 12px 20px rgba(168, 85, 247, 0.3))",
+        } as any)
+      : {}),
   },
   svgAltaHidden: {
     opacity: 0,
     transform: [{ translateY: 24 }, { scale: 0.98 }],
     pointerEvents: "none",
   },
-
-  /* TEXTO SECUNDARIO CLARO */
   textLightSecondary: {
     color: "#64748b",
   },
