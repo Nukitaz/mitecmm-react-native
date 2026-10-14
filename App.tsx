@@ -1,10 +1,10 @@
 import React from "react";
 import { Platform } from "react-native";
-import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
+import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { ThemeProvider } from "./src/context/ThemeContext";
+import { ThemeProvider, useTheme } from "./src/context/ThemeContext";
 
-// Importa el nuevo fondo global
+// Fondo con textura de puntos
 import { DottedBackground } from "./src/components/DottedBackground";
 
 // Importa tus pantallas
@@ -14,6 +14,20 @@ import Edificio from "./src/pages/Edificio";
 import Profesores from "./src/pages/Profesores";
 
 const Stack = createNativeStackNavigator();
+
+// Envoltorio para que cada pantalla conserve su propio lienzo de puntos
+const withBackground = (Component: React.ComponentType<any>) => {
+  return (props: any) => (
+    <DottedBackground>
+      <Component {...props} />
+    </DottedBackground>
+  );
+};
+
+const IndexScreen = withBackground(Index);
+const MapaScreen = withBackground(Mapa);
+const EdificioScreen = withBackground(Edificio);
+const ProfesoresScreen = withBackground(Profesores);
 
 const linking = {
   prefixes: ["http://localhost:8081", "http://localhost:8080", "tu-app://"],
@@ -34,16 +48,9 @@ const ROUTE_TITLES: Record<string, string> = {
   Profesores: "MiTecmm · Directorio Docente",
 };
 
-// Tema transparente para que el fondo de React Navigation deje ver los puntos
-const TransparentTheme = {
-  ...DefaultTheme,
-  colors: {
-    ...DefaultTheme.colors,
-    background: "transparent",
-  },
-};
+function AppNavigator() {
+  const { isDarkMode } = useTheme();
 
-export default function App() {
   const updateTitle = (state: any) => {
     if (Platform.OS === "web" && state) {
       const route = state.routes[state.index];
@@ -53,53 +60,56 @@ export default function App() {
   };
 
   return (
+    <NavigationContainer
+      linking={linking}
+      onReady={() => {
+        if (Platform.OS === "web") {
+          document.title = "MiTecmm";
+        }
+      }}
+      onStateChange={(state) => updateTitle(state)}
+    >
+      <Stack.Navigator
+        initialRouteName="Index"
+        screenOptions={{
+          headerShown: false,
+          // "none" suprime el cross-fade traslúcido y los saltos entre pestañas
+          animation: "none",
+          // Color de respaldo idéntico al tema para evitar parpadeos grises del sistema
+          contentStyle: {
+            backgroundColor: isDarkMode ? "#08080a" : "#f8fafc",
+          },
+        }}
+      >
+        <Stack.Screen
+          name="Index"
+          component={IndexScreen}
+          options={{ title: "MiTecmm" }}
+        />
+        <Stack.Screen
+          name="Mapa"
+          component={MapaScreen}
+          options={{ title: "MiTecmm · Mapa General" }}
+        />
+        <Stack.Screen
+          name="Edificio"
+          component={EdificioScreen}
+          options={{ title: "MiTecmm · Planos por Edificio" }}
+        />
+        <Stack.Screen
+          name="Profesores"
+          component={ProfesoresScreen}
+          options={{ title: "MiTecmm · Directorio Docente" }}
+        />
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+}
+
+export default function App() {
+  return (
     <ThemeProvider>
-      {/* 
-        El fondo punteado envuelve a toda la aplicación.
-        Como está por fuera del navegador, se renderiza una sola vez.
-      */}
-      <DottedBackground>
-        <NavigationContainer
-          linking={linking}
-          theme={TransparentTheme}
-          onReady={() => {
-            if (Platform.OS === "web") {
-              document.title = "MiTecmm";
-            }
-          }}
-          onStateChange={(state) => updateTitle(state)}
-        >
-          <Stack.Navigator
-            initialRouteName="Index"
-            screenOptions={{
-              headerShown: false,
-              // Asegura que las pantallas por defecto tengan fondo transparente
-              contentStyle: { backgroundColor: "transparent" },
-            }}
-          >
-            <Stack.Screen
-              name="Index"
-              component={Index}
-              options={{ title: "MiTecmm" }}
-            />
-            <Stack.Screen
-              name="Mapa"
-              component={Mapa}
-              options={{ title: "MiTecmm · Mapa General" }}
-            />
-            <Stack.Screen
-              name="Edificio"
-              component={Edificio}
-              options={{ title: "MiTecmm · Planos por Edificio" }}
-            />
-            <Stack.Screen
-              name="Profesores"
-              component={Profesores}
-              options={{ title: "MiTecmm · Directorio Docente" }}
-            />
-          </Stack.Navigator>
-        </NavigationContainer>
-      </DottedBackground>
+      <AppNavigator />
     </ThemeProvider>
   );
 }
