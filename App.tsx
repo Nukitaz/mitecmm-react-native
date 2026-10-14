@@ -1,6 +1,6 @@
 import React from "react";
 import { Platform } from "react-native";
-import { NavigationContainer } from "@react-navigation/native";
+import { NavigationContainer, LinkingOptions } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { ThemeProvider, useTheme } from "./src/context/ThemeContext";
 
@@ -29,9 +29,15 @@ const MapaScreen = withBackground(Mapa);
 const EdificioScreen = withBackground(Edificio);
 const ProfesoresScreen = withBackground(Profesores);
 
-const linking = {
-  prefixes: ["http://localhost:8081", "http://localhost:8080", "tu-app://"],
+const linking: LinkingOptions<any> = {
+  prefixes: [
+    "https://nukitaz.github.io/mitecmm-react-native",
+    "http://localhost:8081",
+    "http://localhost:8080",
+    "tu-app://",
+  ],
   config: {
+    initialRouteName: "Index",
     screens: {
       Index: "",
       Mapa: "mapa",

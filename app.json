@@ -18,7 +18,8 @@
       "package": "com.mitecmm.mitecmmreactnative"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "output": "single"
     },
     "extra": {
       "eas": {
