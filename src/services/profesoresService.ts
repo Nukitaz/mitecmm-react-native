@@ -15,16 +15,28 @@ export interface HorarioDocente {
 
 export async function obtenerProfesores(busqueda: string = ""): Promise<HorarioDocente[]> {
   try {
-    let query = supabase.from("horarios_docentes").select("*");
-
-    if (busqueda.trim()) {
-      const q = busqueda.trim();
-      query = query.or(
-        `docente.ilike.%${q}%,materia.ilike.%${q}%,aula.ilike.%${q}%,grupo.ilike.%${q}%`
-      );
+    if (!busqueda.trim()) {
+      const { data, error } = await supabase.from("horarios_docentes").select("*");
+      if (error) console.error("Error al consultar horarios_docentes:", error.message);
+      return data || [];
     }
 
-    const { data, error } = await query;
+    const q = busqueda.trim();
+
+    // Intentar primero usando la función RPC de Supabase si existe
+    const { data: rpcData, error: rpcError } = await supabase.rpc("buscar_docentes_v3", {
+      search_term: q,
+    });
+
+    if (!rpcError && rpcData) {
+      return rpcData;
+    }
+
+    // Fallback con consulta or/ilike directa
+    const { data, error } = await supabase
+      .from("horarios_docentes")
+      .select("*")
+      .or(`docente.ilike.%${q}%,materia.ilike.%${q}%,aula.ilike.%${q}%,grupo.ilike.%${q}%`);
 
     if (error) {
       console.error("Error al consultar horarios_docentes:", error.message);

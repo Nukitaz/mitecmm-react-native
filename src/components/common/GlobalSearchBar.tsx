@@ -1,0 +1,342 @@
+import React, { useState, useEffect } from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Platform,
+} from "react-native";
+import { Search, User, Book, MapPin } from "lucide-react-native";
+import { useNavigation } from "@react-navigation/native";
+import { useTheme } from "../../context/ThemeContext";
+import { AULAS_UBICACIONES } from "../../pages/Mapa";
+import { obtenerProfesores } from "../../services/profesoresService";
+
+export type Suggestion = {
+  id: string;
+  type: "aula" | "prof" | "materia";
+  label: string;
+  detail: string;
+  aulaResaltada?: string;
+  profesorQuery?: string;
+};
+
+interface GlobalSearchBarProps {
+  placeholder?: string;
+  onSelectOverride?: (suggestion: Suggestion) => void;
+}
+
+export const GlobalSearchBar: React.FC<GlobalSearchBarProps> = ({
+  placeholder = "Busca un salón, profesor o materia...",
+  onSelectOverride,
+}) => {
+  const navigation = useNavigation<any>();
+  const { isDarkMode } = useTheme();
+
+  const [searchTerm, setSearchTerm] = useState("");
+  const [isFocused, setIsFocused] = useState(false);
+  const [sugerencias, setSugerencias] = useState<Suggestion[]>([]);
+
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      if (searchTerm.trim().length < 2) {
+        setSugerencias([]);
+        return;
+      }
+
+      const term = searchTerm.toUpperCase().trim();
+      let nuevasSugerencias: Suggestion[] = [];
+
+      // 1. Coincidencias en Aulas estáticas
+      Object.keys(AULAS_UBICACIONES).forEach((aula) => {
+        if (aula.includes(term)) {
+          nuevasSugerencias.push({
+            id: `aula-${aula}`,
+            type: "aula",
+            label: `AULA ${aula}`,
+            detail: "SALÓN",
+            aulaResaltada: aula,
+          });
+        }
+      });
+
+      // 2. Consulta a Supabase (horarios_docentes)
+      try {
+        const resultadosDB = await obtenerProfesores(searchTerm);
+        
+        const profesoresMap = new Map<string, { totalMaterias: Set<string>; aula: string }>();
+        const materiasAgregadas = new Set<string>();
+
+        resultadosDB?.forEach((item: any) => {
+          const doc = item.docente?.trim();
+          const mat = item.materia?.trim();
+          const aulaClass = item.aula?.trim();
+
+          // Filtrar por Docente
+          if (doc && doc.toUpperCase().includes(term)) {
+            if (!profesoresMap.has(doc)) {
+              profesoresMap.set(doc, { totalMaterias: new Set(), aula: aulaClass });
+            }
+            if (mat) profesoresMap.get(doc)!.totalMaterias.add(mat);
+          }
+
+          // Filtrar por Materia
+          if (mat && mat.toUpperCase().includes(term) && !materiasAgregadas.has(mat)) {
+            materiasAgregadas.add(mat);
+            nuevasSugerencias.push({
+              id: `mat-${item.id || mat}`,
+              type: "materia",
+              label: mat,
+              detail: "MATERIA",
+              aulaResaltada: aulaClass,
+            });
+          }
+        });
+
+        // Formatear resultados de Profesores
+        profesoresMap.forEach((val, docente) => {
+          const count = val.totalMaterias.size;
+          nuevasSugerencias.push({
+            id: `prof-${docente}`,
+            type: "prof",
+            label: docente,
+            detail: count > 0 ? `PROF · ${count} MATS` : "PROFESOR",
+            aulaResaltada: val.aula,
+            profesorQuery: docente,
+          });
+        });
+      } catch (err) {
+        console.error("Error al consultar Supabase:", err);
+      }
+
+      setSugerencias(nuevasSugerencias.slice(0, 6));
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  const handleSelectSuggestion = (item: Suggestion) => {
+    setSearchTerm(item.label);
+    setIsFocused(false);
+
+    if (onSelectOverride) {
+      onSelectOverride(item);
+      return;
+    }
+
+    // Redirección si es Profesor
+    if (item.type === "prof") {
+      navigation.navigate("Profesores", { q: item.profesorQuery || item.label });
+      return;
+    }
+
+    // Redirección si es Materia o Aula
+    let aulaObjetivo = item.aulaResaltada ? item.aulaResaltada.toUpperCase() : "";
+    let ubicacion = AULAS_UBICACIONES[aulaObjetivo];
+
+    if (!ubicacion && aulaObjetivo) {
+      const letraEdificio = aulaObjetivo.charAt(0).toLowerCase();
+      const edificiosValidos = ["a", "b", "c", "f", "g", "i", "l", "o", "p", "e"];
+
+      if (edificiosValidos.includes(letraEdificio)) {
+        ubicacion = {
+          edificioId: letraEdificio === "e" ? "em" : letraEdificio,
+          nombreEdificio: `Edificio ${letraEdificio.toUpperCase()}`,
+          planta: "alta",
+          svgId: "",
+        };
+      }
+    }
+
+    if (ubicacion) {
+      navigation.navigate("Edificio", {
+        id: ubicacion.edificioId,
+        nombre: ubicacion.nombreEdificio,
+        plantaInicial: ubicacion.planta,
+        aulaResaltada: aulaObjetivo,
+      });
+    } else {
+      navigation.navigate("Profesores", { q: item.label });
+    }
+  };
+
+  const handleSearchSubmit = () => {
+    if (!searchTerm.trim()) return;
+    if (sugerencias.length > 0) {
+      handleSelectSuggestion(sugerencias[0]);
+    } else {
+      navigation.navigate("Profesores", { q: searchTerm.trim() });
+    }
+  };
+
+  const IconoTipo = ({ type }: { type: string }) => {
+    switch (type) {
+      case "prof":
+        return <User size={16} color="#a855f7" />;
+      case "materia":
+        return <Book size={16} color="#a855f7" />;
+      default:
+        return <MapPin size={16} color="#a855f7" />;
+    }
+  };
+
+  return (
+    <View style={styles.searchWrapper}>
+      <View
+        style={[
+          styles.searchContainer,
+          !isDarkMode && styles.searchContainerLight,
+          isFocused && styles.searchContainerActive,
+        ]}
+      >
+        <Search
+          size={18}
+          color={isFocused ? "#a855f7" : isDarkMode ? "#a1a1aa" : "#64748b"}
+          style={styles.searchIcon}
+        />
+        <TextInput
+          style={[styles.searchInput, !isDarkMode && styles.searchInputLight]}
+          placeholder={placeholder}
+          placeholderTextColor={isDarkMode ? "#71717a" : "#94a3b8"}
+          value={searchTerm}
+          onChangeText={setSearchTerm}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
+          onSubmitEditing={handleSearchSubmit}
+          returnKeyType="search"
+        />
+      </View>
+
+      {isFocused && sugerencias.length > 0 && (
+        <View
+          style={[
+            styles.dropdownContainer,
+            !isDarkMode && styles.dropdownContainerLight,
+          ]}
+        >
+          {sugerencias.map((sug, index) => (
+            <TouchableOpacity
+              key={sug.id}
+              style={[
+                styles.dropdownItem,
+                index !== sugerencias.length - 1 &&
+                  (isDarkMode ? styles.dropdownItemBorder : styles.dropdownItemBorderLight),
+              ]}
+              activeOpacity={0.7}
+              onPressIn={() => handleSelectSuggestion(sug)}
+            >
+              <View style={styles.dropdownLeft}>
+                <IconoTipo type={sug.type} />
+                <Text
+                  style={[styles.dropdownLabel, !isDarkMode && styles.dropdownLabelLight]}
+                  numberOfLines={1}
+                >
+                  {sug.label}
+                </Text>
+              </View>
+              <Text style={styles.dropdownDetail}>{sug.detail}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  searchWrapper: {
+    width: "100%",
+    maxWidth: 600,
+    marginTop: 12,
+    position: "relative",
+    zIndex: 9999,
+  },
+  searchContainer: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#121215",
+    borderWidth: 1,
+    borderColor: "#27272a",
+    borderRadius: 6,
+    paddingHorizontal: 14,
+  },
+  searchContainerLight: {
+    backgroundColor: "#ffffff",
+    borderColor: "#e2e8f0",
+  },
+  searchContainerActive: {
+    borderColor: "#a855f7",
+  },
+  searchIcon: { marginRight: 10 },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 12,
+    color: "#ffffff",
+    fontSize: 14,
+    outlineStyle: "none" as any,
+  },
+  searchInputLight: { color: "#0f172a" },
+
+  dropdownContainer: {
+    position: "absolute",
+    top: 50,
+    left: 0,
+    right: 0,
+    backgroundColor: "#121118",
+    borderWidth: 1,
+    borderColor: "rgba(168, 85, 247, 0.4)",
+    borderRadius: 6,
+    shadowColor: "#a855f7",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 25,
+    zIndex: 10000,
+  },
+  dropdownContainerLight: {
+    backgroundColor: "#ffffff",
+    borderColor: "#e2e8f0",
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+  },
+  dropdownItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  dropdownItemBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: "#1e1e24",
+  },
+  dropdownItemBorderLight: {
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f5f9",
+  },
+  dropdownLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+    paddingRight: 10,
+  },
+  dropdownLabel: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "bold",
+    textTransform: "uppercase",
+  },
+  dropdownLabelLight: {
+    color: "#0f172a",
+  },
+  dropdownDetail: {
+    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
+    fontSize: 10,
+    color: "#c084fc",
+    letterSpacing: 1.5,
+    fontWeight: "600",
+  },
+});

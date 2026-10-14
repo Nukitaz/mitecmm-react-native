@@ -53,37 +53,85 @@ En windows/linux/mac:
 npm install -g eas-cli
 eas login
 ```
-### Configurar eas.json
-
-```bash
-{
-  "cli": {
-    "version": ">= 24.12.1",
-    "appVersionSource": "remote"
-  },
-  "build": {
-    "development": {
-      "developmentClient": true,
-      "distribution": "internal"
-    },
-    "preview": {
-      "distribution": "internal",
-      "android": {
-        "buildType": "apk"
-      }
-    },
-    "production": {
-      "autoIncrement": true
-    }
-  },
-  "submit": {
-    "production": {}
-  }
-}
-```
-
 ### iniciar la compilacion en los servidores
 ```bash
 eas build -p android --profile preview
 ```
+
+### Generar APK desde Local (Expo Prebuild + Gradle) en Windows
+
+Generar la carpeta nativa de Android:
+```bash
+npx expo prebuild --platform android
+```
+modificar archivo grandle.properties al siguiente:
+```bash
+# Project-wide Gradle settings.
+
+# IDE (e.g. Android Studio) users:
+# Gradle settings configured through the IDE *will override*
+# any settings specified in this file.
+
+# For more details on how to configure your build environment visit
+# http://www.gradle.org/docs/current/userguide/build_environment.html
+
+# Specifies the JVM arguments used for the daemon process.
+# Ajuste de memoria para evitar OutOfMemoryError: Metaspace en Windows
+org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8
+
+# When configured, Gradle will run in incubating parallel mode.
+# This option should only be used with decoupled projects. More details, visit
+# http://www.gradle.org/docs/current/userguide/multi_project_builds.html#sec:decoupled_projects
+org.gradle.parallel=true
+
+# AndroidX package structure to make it clearer which packages are bundled with the
+# Android operating system, and which are packaged with your app's APK
+# https://developer.android.com/topic/libraries/support-library/androidx-rn
+android.useAndroidX=true
+
+# Enable AAPT2 PNG crunching
+android.enablePngCrunchInReleaseBuilds=true
+
+# Solo compilar para arquitecturas ARM reales (celulares) y x86_64 para emuladores modernos
+reactNativeArchitectures=arm64-v8a,armeabi-v7a,x86_64
+
+# Use this property to enable support to the new architecture.
+# This will allow you to use TurboModules and the Fabric render in
+# your application. You should enable this flag either if you want
+# to write custom TurboModules/Fabric components OR use libraries that
+# are providing them.
+newArchEnabled=true
+
+# Use this property to enable or disable the Hermes JS engine.
+# If set to false, you will be using JSC instead.
+hermesEnabled=true
+
+# Use this property to enable edge-to-edge display support.
+# This allows your app to draw behind system bars for an immersive UI.
+# Note: Only works with ReactActivity and should not be used with custom Activity.
+edgeToEdgeEnabled=true
+
+# Enable GIF support in React Native images (~200 B increase)
+expo.gif.enabled=true
+# Enable webp support in React Native images (~85 KB increase)
+expo.webp.enabled=true
+# Enable animated webp support (~3.4 MB increase)
+# Disabled by default because iOS doesn't support animated webp
+expo.webp.animated=false
+
+# Enable network inspector
+EX_DEV_CLIENT_NETWORK_INSPECTOR=true
+
+# Use legacy packaging to compress native libraries in the resulting APK.
+expo.useLegacyPackaging=false
+
+expo.inlineModules.watchedDirectories=[]
+```
+
+Compilar el APK de Release localmente
+```bash
+.\gradlew.bat assembleRelease
+```
+Al finalizar, encontrarás tu archivo .apk generado en la ruta:
+android\app\build\outputs\apk\release\app-release.apk
 

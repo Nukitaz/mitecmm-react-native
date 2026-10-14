@@ -5,17 +5,23 @@ import {
   StyleSheet,
   TouchableOpacity,
   Platform,
-  StatusBar,
+  DevSettings,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Sun, Moon, RotateCw } from "lucide-react-native";
 import { useTheme } from "../context/ThemeContext";
+import { StatusBar } from "expo-status-bar";
 
 export const Navbar = () => {
   const navigation = useNavigation<any>();
   const route = useRoute();
   const { isDarkMode, toggleTheme } = useTheme();
+  const { width } = useWindowDimensions();
+
+  // Detecta pantalla de escritorio
+  const isDesktop = width >= 768;
 
   const [timeString, setTimeString] = useState("");
 
@@ -44,147 +50,175 @@ export const Navbar = () => {
   const handleReload = () => {
     if (Platform.OS === "web" && typeof window !== "undefined") {
       window.location.reload();
+    } else {
+      if (DevSettings && typeof DevSettings.reload === "function") {
+        DevSettings.reload();
+      } else {
+        navigation.replace(route.name, route.params);
+      }
     }
   };
 
   const isActive = (screenName: string) => route.name === screenName;
+
+  const renderNavLinks = () => (
+    <>
+      <TouchableOpacity
+        style={[
+          styles.navBtn,
+          isActive("Index") &&
+            (isDarkMode ? styles.navBtnActiveDark : styles.navBtnActiveLight),
+        ]}
+        onPress={() => navigation.navigate("Index")}
+        activeOpacity={0.7}
+      >
+        <Text
+          style={[
+            styles.navBtnText,
+            !isDarkMode && styles.navBtnTextLight,
+            isActive("Index") &&
+              (isDarkMode ? styles.navBtnTextActiveDark : styles.navBtnTextActiveLight),
+          ]}
+        >
+          Inicio
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[
+          styles.navBtn,
+          (isActive("Mapa") || isActive("Edificio")) &&
+            (isDarkMode ? styles.navBtnActiveDark : styles.navBtnActiveLight),
+        ]}
+        onPress={() => navigation.navigate("Mapa")}
+        activeOpacity={0.7}
+      >
+        <Text
+          style={[
+            styles.navBtnText,
+            !isDarkMode && styles.navBtnTextLight,
+            (isActive("Mapa") || isActive("Edificio")) &&
+              (isDarkMode ? styles.navBtnTextActiveDark : styles.navBtnTextActiveLight),
+          ]}
+        >
+          Mapa
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[
+          styles.navBtn,
+          isActive("Profesores") &&
+            (isDarkMode ? styles.navBtnActiveDark : styles.navBtnActiveLight),
+        ]}
+        onPress={() => navigation.navigate("Profesores")}
+        activeOpacity={0.7}
+      >
+        <Text
+          style={[
+            styles.navBtnText,
+            !isDarkMode && styles.navBtnTextLight,
+            isActive("Profesores") &&
+              (isDarkMode ? styles.navBtnTextActiveDark : styles.navBtnTextActiveLight),
+          ]}
+        >
+          Profesores
+        </Text>
+      </TouchableOpacity>
+    </>
+  );
 
   return (
     <SafeAreaView
       edges={["top"]}
       style={[styles.safeArea, !isDarkMode && styles.safeAreaLight]}
     >
-      <View style={[styles.navContainer, !isDarkMode && styles.navContainerLight]}>
-        {/* FILA PRINCIPAL: LOGO + CONTROLES */}
-        <View style={styles.topRow}>
-          {/* LOGO */}
-          <TouchableOpacity
-            style={styles.logoContainer}
-            activeOpacity={0.7}
-            onPress={() => navigation.navigate("Index")}
-          >
-            <View style={styles.logoSquare} />
-            <Text style={[styles.logoText, !isDarkMode && styles.logoTextLight]}>
-              MiTecmm
-            </Text>
-          </TouchableOpacity>
+      <StatusBar style={isDarkMode ? "light" : "dark"} />
 
-          {/* CONTROLES (TEMA Y RELOJ SOLO EN WEB) */}
-          <View style={styles.rightSection}>
-            <View
+      <View
+        style={[
+          styles.navContainer,
+          !isDarkMode && styles.navContainerLight,
+          isDesktop && styles.navContainerDesktop,
+        ]}
+      >
+        {/* FILA PRINCIPAL: 3 COLUMNAS QUE ABARCAN EL 100% DE LA PANTALLA */}
+        <View style={styles.topRow}>
+          {/* EXTREMO IZQUIERDO: LOGO */}
+          <View style={styles.leftCol}>
+            <TouchableOpacity
+              style={styles.logoContainer}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate("Index")}
+            >
+              <View style={styles.logoSquare} />
+              <Text style={[styles.logoText, !isDarkMode && styles.logoTextLight]}>
+                MiTecmm
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* CENTRO: ENLACES */}
+          {isDesktop && (
+            <View style={styles.centerCol}>
+              <View style={styles.linksRowDesktop}>{renderNavLinks()}</View>
+            </View>
+          )}
+
+          {/* EXTREMO DERECHO: CONTROLES */}
+          <View style={styles.rightCol}>
+            <TouchableOpacity
+              style={[styles.refreshBtn, !isDarkMode && styles.refreshBtnLight]}
+              onPress={handleReload}
+              activeOpacity={0.7}
+            >
+              <RotateCw
+                size={14}
+                color={isDarkMode ? "#a1a1aa" : "#64748b"}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={toggleTheme}
+              activeOpacity={0.8}
               style={[
                 styles.themeToggleContainer,
                 !isDarkMode && styles.themeToggleContainerLight,
               ]}
             >
-              <TouchableOpacity
+              <View
                 style={[
-                  styles.themeBtn,
+                  styles.themeIconBox,
                   !isDarkMode && styles.themeBtnActiveLight,
                 ]}
-                onPress={() => isDarkMode && toggleTheme()}
-                activeOpacity={0.7}
               >
                 <Sun size={13} color={!isDarkMode ? "#a855f7" : "#71717a"} />
-              </TouchableOpacity>
+              </View>
 
-              <TouchableOpacity
+              <View
                 style={[
-                  styles.themeBtn,
+                  styles.themeIconBox,
                   isDarkMode && styles.themeBtnActiveDark,
                 ]}
-                onPress={() => !isDarkMode && toggleTheme()}
-                activeOpacity={0.7}
               >
                 <Moon size={13} color={isDarkMode ? "#ffffff" : "#71717a"} />
-              </TouchableOpacity>
-            </View>
+              </View>
+            </TouchableOpacity>
 
-            {/* RELOJ / REINICIAR (SOLO WEB PARA NO SATURAR EL CELULAR) */}
             {Platform.OS === "web" && (
-              <TouchableOpacity
-                style={[styles.clockBadge, !isDarkMode && styles.clockBadgeLight]}
-                onPress={handleReload}
-                activeOpacity={0.7}
-              >
+              <View style={[styles.clockBadge, !isDarkMode && styles.clockBadgeLight]}>
                 <Text style={[styles.clockText, !isDarkMode && styles.clockTextLight]}>
-                  {timeString || "09/10/2026 23:35:47"}
+                  {timeString || "13/10/2026 18:30:00"}
                 </Text>
-                <RotateCw
-                  size={12}
-                  color={isDarkMode ? "#a1a1aa" : "#64748b"}
-                  style={styles.refreshIcon}
-                />
-              </TouchableOpacity>
+              </View>
             )}
           </View>
         </View>
 
-        {/* NAVEGACIÓN EN SEGUNDA FILA O ENLACES CENTRADOS */}
-        <View style={styles.linksRow}>
-          <TouchableOpacity
-            style={[
-              styles.navBtn,
-              isActive("Index") &&
-                (isDarkMode ? styles.navBtnActiveDark : styles.navBtnActiveLight),
-            ]}
-            onPress={() => navigation.navigate("Index")}
-            activeOpacity={0.7}
-          >
-            <Text
-              style={[
-                styles.navBtnText,
-                !isDarkMode && styles.navBtnTextLight,
-                isActive("Index") &&
-                  (isDarkMode ? styles.navBtnTextActiveDark : styles.navBtnTextActiveLight),
-              ]}
-            >
-              Inicio
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.navBtn,
-              (isActive("Mapa") || isActive("Edificio")) &&
-                (isDarkMode ? styles.navBtnActiveDark : styles.navBtnActiveLight),
-            ]}
-            onPress={() => navigation.navigate("Mapa")}
-            activeOpacity={0.7}
-          >
-            <Text
-              style={[
-                styles.navBtnText,
-                !isDarkMode && styles.navBtnTextLight,
-                (isActive("Mapa") || isActive("Edificio")) &&
-                  (isDarkMode ? styles.navBtnTextActiveDark : styles.navBtnTextActiveLight),
-              ]}
-            >
-              Mapa
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.navBtn,
-              isActive("Profesores") &&
-                (isDarkMode ? styles.navBtnActiveDark : styles.navBtnActiveLight),
-            ]}
-            onPress={() => navigation.navigate("Profesores")}
-            activeOpacity={0.7}
-          >
-            <Text
-              style={[
-                styles.navBtnText,
-                !isDarkMode && styles.navBtnTextLight,
-                isActive("Profesores") &&
-                  (isDarkMode ? styles.navBtnTextActiveDark : styles.navBtnTextActiveLight),
-              ]}
-            >
-              Profesores
-            </Text>
-          </TouchableOpacity>
-        </View>
+        {/* NAVEGACIÓN EN SEGUNDA FILA (SOLO MÓVIL) */}
+        {!isDesktop && (
+          <View style={styles.linksRowMobile}>{renderNavLinks()}</View>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -196,6 +230,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#18181c",
     zIndex: 1000,
+    width: "100%",
   },
   safeAreaLight: {
     backgroundColor: "#ffffff",
@@ -206,15 +241,41 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
+  navContainerDesktop: {
+    width: "100%",
+    paddingHorizontal: 24, // Margen mínimo con el borde de la ventana
+    paddingVertical: 10,
+  },
   navContainerLight: {
     backgroundColor: "#ffffff",
   },
   topRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
     width: "100%",
   },
+
+  /* 3 columnas balanceadas */
+  leftCol: {
+    flex: 1,
+    flexDirection: "row",
+    justifyContent: "flex-start",
+    alignItems: "center",
+  },
+  centerCol: {
+    flexShrink: 0,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  rightCol: {
+    flex: 1,
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    gap: 6,
+  },
+
   logoContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -236,10 +297,20 @@ const styles = StyleSheet.create({
   logoTextLight: {
     color: "#0f172a",
   },
-  rightSection: {
-    flexDirection: "row",
+
+  refreshBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 4,
+    backgroundColor: "#0d0d10",
+    borderWidth: 1,
+    borderColor: "#27272a",
+    justifyContent: "center",
     alignItems: "center",
-    gap: 8,
+  },
+  refreshBtnLight: {
+    backgroundColor: "#f1f5f9",
+    borderColor: "#e2e8f0",
   },
   themeToggleContainer: {
     flexDirection: "row",
@@ -255,7 +326,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#f1f5f9",
     borderColor: "#e2e8f0",
   },
-  themeBtn: {
+  themeIconBox: {
     paddingHorizontal: 6,
     paddingVertical: 4,
     borderRadius: 3,
@@ -269,7 +340,6 @@ const styles = StyleSheet.create({
   clockBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
     borderWidth: 1,
     borderColor: "#27272a",
     backgroundColor: "#0d0d10",
@@ -289,10 +359,13 @@ const styles = StyleSheet.create({
   clockTextLight: {
     color: "#0f172a",
   },
-  refreshIcon: {
-    marginLeft: 2,
+
+  linksRowDesktop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
-  linksRow: {
+  linksRowMobile: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
@@ -300,6 +373,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
     paddingTop: 4,
   },
+
   navBtn: {
     paddingHorizontal: 12,
     paddingVertical: 4,

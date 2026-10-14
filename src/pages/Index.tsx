@@ -2,43 +2,33 @@ import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
-  TextInput,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
   Platform,
   useWindowDimensions,
+  TextInput,
+  TouchableOpacity,
 } from "react-native";
-import { Search, User, Book, MapPin, Users } from "lucide-react-native";
+import { MapPin, Users, Search, User, Book } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Navbar } from "../components/Navbar";
 import { AvisosBanner } from "../components/AvisosBanner";
+import { ModuleCard } from "../components/index/ModuleCard";
 import { useTheme } from "../context/ThemeContext";
-import { AULAS_UBICACIONES } from "./Mapa";
+import { AULAS_UBICACIONES, Suggestion } from "./Mapa";
 import { obtenerProfesores } from "../services/profesoresService";
-
-type Suggestion = {
-  id: string;
-  type: "aula" | "prof" | "materia";
-  label: string;
-  detail: string;
-  aulaResaltada: string;
-};
 
 export const Index = () => {
   const navigation = useNavigation<any>();
   const { isDarkMode } = useTheme();
   const { width } = useWindowDimensions();
 
-  // Se considera pantalla Web / Escritorio cuando el ancho supera los 768px
   const isDesktop = width >= 768 || Platform.OS === "web";
 
-  // Estados del Buscador
   const [searchTerm, setSearchTerm] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [sugerencias, setSugerencias] = useState<Suggestion[]>([]);
 
-  // Lógica del autocompletado en vivo (Debounce 300ms)
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
       if (searchTerm.trim().length < 2) {
@@ -46,10 +36,10 @@ export const Index = () => {
         return;
       }
 
-      const term = searchTerm.toUpperCase();
+      const term = searchTerm.toUpperCase().trim();
       let nuevasSugerencias: Suggestion[] = [];
 
-      // 1. Filtrar Aulas mapeadas
+      // 1. Filtrar Aulas estáticas
       Object.keys(AULAS_UBICACIONES).forEach((aula) => {
         if (aula.includes(term)) {
           nuevasSugerencias.push({
@@ -62,39 +52,54 @@ export const Index = () => {
         }
       });
 
-      // 2. Búsqueda en Supabase para Profesores y Materias
-      const resultadosDB = await obtenerProfesores(searchTerm);
-      const docentesAgregados = new Set();
-      const materiasAgregadas = new Set();
+      // 2. Consulta a Supabase (horarios_docentes)
+      try {
+        const resultadosDB = await obtenerProfesores(searchTerm);
 
-      resultadosDB?.forEach((item) => {
-        if (
-          item.docente.toUpperCase().includes(term) &&
-          !docentesAgregados.has(item.docente)
-        ) {
-          docentesAgregados.add(item.docente);
+        const profesoresMap = new Map<string, { totalMaterias: Set<string>; aula: string }>();
+        const materiasAgregadas = new Set<string>();
+
+        resultadosDB?.forEach((item: any) => {
+          const doc = item.docente?.trim();
+          const mat = item.materia?.trim();
+          const aulaClass = item.aula?.trim();
+
+          // Filtrar por Docente
+          if (doc && doc.toUpperCase().includes(term)) {
+            if (!profesoresMap.has(doc)) {
+              profesoresMap.set(doc, { totalMaterias: new Set(), aula: aulaClass });
+            }
+            if (mat) profesoresMap.get(doc)!.totalMaterias.add(mat);
+          }
+
+          // Filtrar por Materia
+          if (mat && mat.toUpperCase().includes(term) && !materiasAgregadas.has(mat)) {
+            materiasAgregadas.add(mat);
+            nuevasSugerencias.push({
+              id: `mat-${item.id || mat}`,
+              type: "materia",
+              label: mat,
+              detail: "MATERIA",
+              aulaResaltada: aulaClass,
+            });
+          }
+        });
+
+        // Formatear resultados de Profesores
+        profesoresMap.forEach((val, docente) => {
+          const count = val.totalMaterias.size;
           nuevasSugerencias.push({
-            id: `prof-${item.id}`,
+            id: `prof-${docente}`,
             type: "prof",
-            label: item.docente,
-            detail: "PROF",
-            aulaResaltada: item.aula,
+            label: docente,
+            detail: count > 0 ? `PROF · ${count} MATS` : "PROFESOR",
+            aulaResaltada: val.aula,
+            profesorQuery: docente,
           });
-        }
-        if (
-          item.materia.toUpperCase().includes(term) &&
-          !materiasAgregadas.has(item.materia)
-        ) {
-          materiasAgregadas.add(item.materia);
-          nuevasSugerencias.push({
-            id: `mat-${item.id}`,
-            type: "materia",
-            label: item.materia,
-            detail: "MATERIA",
-            aulaResaltada: item.aula,
-          });
-        }
-      });
+        });
+      } catch (err) {
+        console.error("Error al consultar Supabase:", err);
+      }
 
       setSugerencias(nuevasSugerencias.slice(0, 6));
     }, 300);
@@ -106,22 +111,19 @@ export const Index = () => {
     setSearchTerm(item.label);
     setIsFocused(false);
 
-    let ubicacion = AULAS_UBICACIONES[item.aulaResaltada.toUpperCase()];
+    // Redirección si es Profesor
+    if (item.type === "prof") {
+      navigation.navigate("Profesores", { q: item.profesorQuery || item.label });
+      return;
+    }
 
-    if (!ubicacion) {
-      const letraEdificio = item.aulaResaltada.charAt(0).toLowerCase();
-      const edificiosValidos = [
-        "a",
-        "b",
-        "c",
-        "f",
-        "g",
-        "i",
-        "l",
-        "o",
-        "p",
-        "e",
-      ];
+    // Redirección si es Materia o Aula
+    let aulaObjetivo = item.aulaResaltada ? item.aulaResaltada.toUpperCase() : "";
+    let ubicacion = AULAS_UBICACIONES[aulaObjetivo];
+
+    if (!ubicacion && aulaObjetivo) {
+      const letraEdificio = aulaObjetivo.charAt(0).toLowerCase();
+      const edificiosValidos = ["a", "b", "c", "f", "g", "i", "l", "o", "p", "e"];
 
       if (edificiosValidos.includes(letraEdificio)) {
         ubicacion = {
@@ -138,7 +140,7 @@ export const Index = () => {
         id: ubicacion.edificioId,
         nombre: ubicacion.nombreEdificio,
         plantaInicial: ubicacion.planta,
-        aulaResaltada: item.aulaResaltada,
+        aulaResaltada: aulaObjetivo,
       });
     } else {
       navigation.navigate("Profesores", { q: item.label });
@@ -149,18 +151,8 @@ export const Index = () => {
     const term = searchTerm.trim().toUpperCase();
     if (!term) return;
 
-    const aulaEncontrada = Object.keys(AULAS_UBICACIONES).find(
-      (aula) => aula === term || term.includes(aula)
-    );
-
-    if (aulaEncontrada) {
-      const ubicacion = AULAS_UBICACIONES[aulaEncontrada];
-      navigation.navigate("Edificio", {
-        id: ubicacion.edificioId,
-        nombre: ubicacion.nombreEdificio,
-        plantaInicial: ubicacion.planta,
-        aulaResaltada: aulaEncontrada,
-      });
+    if (sugerencias.length > 0) {
+      handleSelectSuggestion(sugerencias[0]);
     } else {
       navigation.navigate("Profesores", { q: searchTerm.trim() });
     }
@@ -181,73 +173,44 @@ export const Index = () => {
     <View style={[styles.screen, !isDarkMode && styles.screenLight]}>
       <Navbar />
 
-      <ScrollView
-        contentContainerStyle={styles.container}
-        keyboardShouldPersistTaps="handled"
-      >
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.main}>
-          {/* Hero */}
           <View style={styles.heroSection}>
-            <Text
-              style={[
-                styles.buildText,
-                !isDarkMode && styles.textLightSecondary,
-              ]}
-            >
+            <Text style={[styles.buildText, !isDarkMode && styles.textLightSecondary]}>
               [ BUILD_V1.0.2 ]
             </Text>
-            <Text style={[styles.title, !isDarkMode && styles.titleLight]}>
-              MiTecmm
-            </Text>
-            <Text
-              style={[
-                styles.subtitle,
-                !isDarkMode && styles.subtitleLight,
-              ]}
-            >
+            <Text style={[styles.title, !isDarkMode && styles.titleLight]}>MiTecmm</Text>
+            <Text style={[styles.subtitle, !isDarkMode && styles.subtitleLight]}>
               Sistema de navegación oficial del Tecnológico de Jalisco.
             </Text>
 
-            {/* Buscador */}
+            {/* BUSCADOR INTEGRADO */}
             <View style={styles.searchWrapper}>
               <View
                 style={[
                   styles.searchContainer,
                   !isDarkMode && styles.searchContainerLight,
-                  isFocused &&
-                    (isDarkMode
-                      ? styles.searchContainerActive
-                      : styles.searchContainerActiveLight),
+                  isFocused && styles.searchContainerActive,
                 ]}
               >
                 <Search
                   size={18}
-                  color={
-                    isFocused
-                      ? "#a855f7"
-                      : isDarkMode
-                      ? "#a1a1aa"
-                      : "#64748b"
-                  }
+                  color={isFocused ? "#a855f7" : isDarkMode ? "#a1a1aa" : "#64748b"}
                   style={styles.searchIcon}
                 />
                 <TextInput
-                  style={[
-                    styles.searchInput,
-                    !isDarkMode && styles.searchInputLight,
-                  ]}
-                  placeholder="Busca un salón, laboratorio u oficina..."
+                  style={[styles.searchInput, !isDarkMode && styles.searchInputLight]}
+                  placeholder="Busca un salón, profesor o materia..."
                   placeholderTextColor={isDarkMode ? "#71717a" : "#94a3b8"}
                   value={searchTerm}
                   onChangeText={setSearchTerm}
                   onFocus={() => setIsFocused(true)}
-                  onBlur={() => setTimeout(() => setIsFocused(false), 200)}
+                  onBlur={() => setTimeout(() => setIsFocused(false), 250)}
                   onSubmitEditing={handleSearchSubmit}
                   returnKeyType="search"
                 />
               </View>
 
-              {/* Menú Flotante de Sugerencias */}
               {isFocused && sugerencias.length > 0 && (
                 <View
                   style={[
@@ -261,20 +224,23 @@ export const Index = () => {
                       style={[
                         styles.dropdownItem,
                         index !== sugerencias.length - 1 &&
-                          (isDarkMode
-                            ? styles.dropdownItemBorder
-                            : styles.dropdownItemBorderLight),
+                          (isDarkMode ? styles.dropdownItemBorder : styles.dropdownItemBorderLight),
                       ]}
                       activeOpacity={0.7}
                       onPress={() => handleSelectSuggestion(sug)}
+                      {...(Platform.OS === "web"
+                        ? {
+                            onMouseDown: (e: any) => {
+                              e.preventDefault();
+                              handleSelectSuggestion(sug);
+                            },
+                          }
+                        : {})}
                     >
                       <View style={styles.dropdownLeft}>
                         <IconoTipo type={sug.type} />
                         <Text
-                          style={[
-                            styles.dropdownLabel,
-                            !isDarkMode && styles.dropdownLabelLight,
-                          ]}
+                          style={[styles.dropdownLabel, !isDarkMode && styles.dropdownLabelLight]}
                           numberOfLines={1}
                         >
                           {sug.label}
@@ -288,16 +254,9 @@ export const Index = () => {
             </View>
           </View>
 
-          {/* Banner de Avisos con Marquee + Historial */}
           <AvisosBanner />
 
-          {/* Módulos alineados en Lado a Lado para Web/Desktop */}
-          <View
-            style={[
-              styles.modulesGrid,
-              isDesktop && styles.modulesGridDesktop,
-            ]}
-          >
+          <View style={[styles.modulesGrid, isDesktop && styles.modulesGridDesktop]}>
             <ModuleCard
               onPress={() => navigation.navigate("Mapa")}
               code="MOD_01"
@@ -321,64 +280,9 @@ export const Index = () => {
   );
 };
 
-interface ModuleCardProps {
-  onPress: () => void;
-  code: string;
-  title: string;
-  description: string;
-  icon: React.ReactNode;
-  isDarkMode: boolean;
-}
-
-const ModuleCard = ({
-  onPress,
-  code,
-  title,
-  description,
-  icon,
-  isDarkMode,
-}: ModuleCardProps) => (
-  <TouchableOpacity
-    onPress={onPress}
-    style={[styles.card, !isDarkMode && styles.cardLight]}
-    activeOpacity={0.8}
-  >
-    <View style={styles.cardTopRow}>
-      <View style={[styles.iconBox, !isDarkMode && styles.iconBoxLight]}>
-        {icon}
-      </View>
-      <Text style={[styles.codeText, !isDarkMode && styles.textLightSecondary]}>
-        {code}
-      </Text>
-    </View>
-
-    <View style={styles.cardContent}>
-      <Text style={[styles.cardTitle, !isDarkMode && styles.cardTitleLight]}>
-        {title}
-      </Text>
-      <Text
-        style={[
-          styles.cardDescription,
-          !isDarkMode && styles.cardDescriptionLight,
-        ]}
-      >
-        {description}
-      </Text>
-    </View>
-
-    <View style={[styles.cardBottomLine, !isDarkMode && styles.lineLight]} />
-  </TouchableOpacity>
-);
-
 const styles = StyleSheet.create({
-  /* PANTALLA Y ESTRUCTURA GENERAL */
-  screen: {
-    flex: 1,
-    backgroundColor: "#08080a",
-  },
-  screenLight: {
-    backgroundColor: "#f8fafc",
-  },
+  screen: { flex: 1, backgroundColor: "transparent" },
+  screenLight: { backgroundColor: "transparent" },
   container: { flexGrow: 1 },
   main: {
     flex: 1,
@@ -388,12 +292,10 @@ const styles = StyleSheet.create({
     width: "100%",
     alignSelf: "center",
   },
-
-  /* HERO */
   heroSection: {
     alignItems: "center",
     marginBottom: 24,
-    zIndex: 1000,
+    zIndex: 9999,
     position: "relative",
   },
   buildText: {
@@ -410,9 +312,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: "center",
   },
-  titleLight: {
-    color: "#0f172a",
-  },
+  titleLight: { color: "#0f172a" },
   subtitle: {
     fontSize: 15,
     color: "#a1a1aa",
@@ -420,26 +320,21 @@ const styles = StyleSheet.create({
     marginTop: 8,
     maxWidth: 420,
   },
-  subtitleLight: {
-    color: "#64748b",
-  },
-
-  /* BUSCADOR Y DROPDOWN */
+  subtitleLight: { color: "#64748b" },
   searchWrapper: {
     width: "100%",
-    maxWidth: 580,
+    maxWidth: 600,
     marginTop: 20,
     position: "relative",
-    zIndex: 9999,
+    zIndex: 10000,
   },
   searchContainer: {
-    width: "100%",
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#121215",
     borderWidth: 1,
     borderColor: "#27272a",
-    borderRadius: 6,
+    borderRadius: 4,
     paddingHorizontal: 14,
   },
   searchContainerLight: {
@@ -448,41 +343,41 @@ const styles = StyleSheet.create({
   },
   searchContainerActive: {
     borderColor: "#a855f7",
-    backgroundColor: "#18181b",
   },
-  searchContainerActiveLight: {
-    borderColor: "#a855f7",
-    backgroundColor: "#ffffff",
+  searchIcon: {
+    marginRight: 10,
   },
-  searchIcon: { marginRight: 10 },
   searchInput: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 14,
     color: "#ffffff",
-    fontSize: 14,
+    fontSize: 15,
     outlineStyle: "none" as any,
   },
-  searchInputLight: { color: "#0f172a" },
-
+  searchInputLight: {
+    color: "#0f172a",
+  },
   dropdownContainer: {
     position: "absolute",
-    top: 50,
+    top: 54,
     left: 0,
     right: 0,
-    backgroundColor: "#18181c",
+    backgroundColor: "#121118",
     borderWidth: 1,
-    borderColor: "#27272a",
+    borderColor: "rgba(168, 85, 247, 0.4)",
     borderRadius: 6,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.6,
-    shadowRadius: 20,
+    shadowColor: "#a855f7",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
     elevation: 25,
-    zIndex: 10000,
+    zIndex: 10001,
   },
   dropdownContainerLight: {
     backgroundColor: "#ffffff",
     borderColor: "#e2e8f0",
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
   },
   dropdownItem: {
     flexDirection: "row",
@@ -493,7 +388,7 @@ const styles = StyleSheet.create({
   },
   dropdownItemBorder: {
     borderBottomWidth: 1,
-    borderBottomColor: "#27272a",
+    borderBottomColor: "#1e1e24",
   },
   dropdownItemBorderLight: {
     borderBottomWidth: 1,
@@ -518,11 +413,10 @@ const styles = StyleSheet.create({
   dropdownDetail: {
     fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
     fontSize: 10,
-    color: "#a855f7",
-    letterSpacing: 2,
+    color: "#c084fc",
+    letterSpacing: 1.5,
+    fontWeight: "600",
   },
-
-  /* MÓDULOS EN 2 COLUMNAS HORIZONTALES EN ESCRITORIO */
   modulesGrid: {
     flexDirection: "column",
     gap: 16,
@@ -533,84 +427,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "stretch",
   },
-  card: {
-    flex: 1,
-    width: "100%",
-    backgroundColor: "#0d0d10",
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "#27272a",
-    padding: 20,
-    justifyContent: "space-between",
-  },
-  cardLight: {
-    backgroundColor: "#ffffff",
-    borderColor: "#e2e8f0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-  },
-  cardTopRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-  },
-  iconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "#27272a",
-    backgroundColor: "#121215",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  iconBoxLight: {
-    backgroundColor: "#f8fafc",
-    borderColor: "#e2e8f0",
-  },
-  codeText: {
-    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
-    fontSize: 10,
-    letterSpacing: 3,
-    color: "#71717a",
-  },
-  cardContent: {
-    marginTop: 20,
-    marginBottom: 24,
-  },
-  cardTitle: {
-    fontSize: 22,
-    fontWeight: "900",
-    color: "#ffffff",
-    letterSpacing: 0.5,
-  },
-  cardTitleLight: {
-    color: "#0f172a",
-  },
-  cardDescription: {
-    fontSize: 14,
-    color: "#a1a1aa",
-    marginTop: 8,
-    lineHeight: 20,
-  },
-  cardDescriptionLight: {
-    color: "#64748b",
-  },
-  cardBottomLine: {
-    height: 1,
-    backgroundColor: "#1e1e24",
-    width: "100%",
-  },
-  lineLight: {
-    backgroundColor: "#e2e8f0",
-  },
-
-  /* TEXTO SECUNDARIO CLARO */
-  textLightSecondary: {
-    color: "#64748b",
-  },
+  textLightSecondary: { color: "#64748b" },
 });
 
 export default Index;

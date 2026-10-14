@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -8,14 +8,12 @@ import {
   ScrollView,
   Animated,
   Easing,
-  Dimensions,
   Platform,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AlertTriangle, ChevronRight, X } from "lucide-react-native";
 import { fetchAvisos, type Aviso } from "../services/avisosService";
 import { useTheme } from "../context/ThemeContext";
-
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 const formatFecha = (iso: string) => {
   try {
@@ -36,16 +34,21 @@ const renderSubtitulo = (
   esUrgente?: boolean
 ) => {
   const idx = texto.indexOf(":");
+  const baseColor = esUrgente
+    ? styles.textUrgent
+    : isDarkMode
+    ? styles.subDark
+    : styles.subLight;
+
   if (idx === -1) {
     return (
       <Text
-        style={
-          esUrgente
-            ? styles.textUrgent
-            : isDarkMode
-            ? styles.subDark
-            : styles.subLight
-        }
+        numberOfLines={1}
+        style={[
+          styles.tickerText,
+          baseColor,
+          Platform.OS === "web" && ({ whiteSpace: "nowrap" } as any),
+        ]}
       >
         {texto}
       </Text>
@@ -57,13 +60,12 @@ const renderSubtitulo = (
 
   return (
     <Text
-      style={
-        esUrgente
-          ? styles.textUrgent
-          : isDarkMode
-          ? styles.subDark
-          : styles.subLight
-      }
+      numberOfLines={1}
+      style={[
+        styles.tickerText,
+        baseColor,
+        Platform.OS === "web" && ({ whiteSpace: "nowrap" } as any),
+      ]}
     >
       <Text
         style={[
@@ -79,10 +81,15 @@ const renderSubtitulo = (
 };
 
 export const AvisosBanner = () => {
+  const insets = useSafeAreaInsets();
   const { isDarkMode } = useTheme();
   const [avisos, setAvisos] = useState<Aviso[]>([]);
   const [selected, setSelected] = useState<Aviso | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+
+  // Ancho medido de un bloque para animación continua en Android
+  const [singleWidth, setSingleWidth] = useState(0);
+  const animatedValue = useRef(new Animated.Value(0)).current;
 
   // Cargar datos reales de Supabase
   useEffect(() => {
@@ -93,32 +100,65 @@ export const AvisosBanner = () => {
     loadAvisos();
   }, []);
 
-  // Animación del Marquee
-  const animatedValue = useRef(new Animated.Value(0)).current;
+  // Asegura items suficientes para evitar huecos en la animación
+  const baseList = useMemo(() => {
+    if (avisos.length === 0) return [];
+    if (avisos.length === 1) return [...avisos, ...avisos, ...avisos, ...avisos];
+    if (avisos.length === 2) return [...avisos, ...avisos];
+    return avisos;
+  }, [avisos]);
 
+  // Animación continua y fluida para Android / iOS
   useEffect(() => {
-    if (avisos.length === 0) return;
+    if (Platform.OS === "web" || singleWidth === 0 || baseList.length === 0) return;
 
     animatedValue.setValue(0);
+    const duration = Math.max(12000, (singleWidth / 42) * 1000);
+
     const animation = Animated.loop(
       Animated.timing(animatedValue, {
-        toValue: 1,
-        duration: 28000,
+        toValue: -singleWidth,
+        duration,
         easing: Easing.linear,
-        useNativeDriver: Platform.OS !== "web", // 👈 Desactiva en Web y mantiene en iOS/Android
+        useNativeDriver: true,
       })
     );
     animation.start();
 
     return () => animation.stop();
-  }, [avisos]);
+  }, [singleWidth, baseList]);
 
-  const tickerItems = avisos.length > 0 ? [...avisos, ...avisos, ...avisos] : [];
-
-  const translateX = animatedValue.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, -SCREEN_WIDTH * 2],
-  });
+  const renderTickerItem = (a: Aviso, key: string) => (
+    <TouchableOpacity
+      key={key}
+      style={styles.tickerItem}
+      onPress={() => setSelected(a)}
+      activeOpacity={0.7}
+    >
+      {a.es_urgente && (
+        <AlertTriangle
+          size={13}
+          color="#f43f5e"
+          style={styles.urgentIcon}
+        />
+      )}
+      {a.subtitulo ? (
+        renderSubtitulo(a.subtitulo, isDarkMode, a.es_urgente)
+      ) : (
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.tickerText,
+            !isDarkMode && styles.tickerTextLight,
+            a.es_urgente && styles.tickerTextUrgent,
+            Platform.OS === "web" && ({ whiteSpace: "nowrap" } as any),
+          ]}
+        >
+          {a.titulo}
+        </Text>
+      )}
+    </TouchableOpacity>
+  );
 
   return (
     <>
@@ -154,7 +194,7 @@ export const AvisosBanner = () => {
 
         {/* Marquee en movimiento */}
         <View style={styles.marqueeContainer}>
-          {tickerItems.length === 0 ? (
+          {baseList.length === 0 ? (
             <Text
               style={[
                 styles.emptyText,
@@ -163,31 +203,78 @@ export const AvisosBanner = () => {
             >
               Sin avisos por el momento
             </Text>
-          ) : (
-            <Animated.View
-              style={[styles.marqueeTrack, { transform: [{ translateX }] }]}
+          ) : Platform.OS === "web" ? (
+            /* Versión Web: CSS nativo con soporte hover */
+            <div
+              style={{
+                flex: 1,
+                overflow: "hidden",
+                display: "flex",
+                width: "100%",
+                position: "relative",
+              }}
             >
-              {tickerItems.map((a, i) => (
-                <TouchableOpacity
-                  key={`${a.id}-${i}`}
-                  style={styles.tickerItem}
-                  onPress={() => setSelected(a)}
-                  activeOpacity={0.7}
-                >
-                  {a.es_urgente && <AlertTriangle size={13} color="#f43f5e" />}
-                  <Text
-                    style={[
-                      styles.tickerText,
-                      !isDarkMode && styles.tickerTextLight,
-                      a.es_urgente && styles.tickerTextUrgent,
-                    ]}
-                  >
-                    {a.subtitulo
-                      ? renderSubtitulo(a.subtitulo, isDarkMode, a.es_urgente)
-                      : a.titulo}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              <style
+                dangerouslySetInnerHTML={{
+                  __html: `
+                    @keyframes marqueeLoopWeb {
+                      0% { transform: translate3d(0, 0, 0); }
+                      100% { transform: translate3d(-50%, 0, 0); }
+                    }
+                    .marquee-track-web {
+                      display: flex !important;
+                      flex-direction: row !important;
+                      align-items: center !important;
+                      width: max-content !important;
+                      animation: marqueeLoopWeb 32s linear infinite;
+                      will-change: transform;
+                    }
+                    .marquee-track-web:hover {
+                      animation-play-state: paused;
+                    }
+                    .marquee-group-web {
+                      display: flex !important;
+                      flex-direction: row !important;
+                      align-items: center !important;
+                      flex-shrink: 0 !important;
+                    }
+                  `,
+                }}
+              />
+              <div className="marquee-track-web">
+                <div className="marquee-group-web">
+                  {baseList.map((a, i) => renderTickerItem(a, `w1-${a.id}-${i}`))}
+                </div>
+                <div className="marquee-group-web">
+                  {baseList.map((a, i) => renderTickerItem(a, `w2-${a.id}-${i}`))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Versión Móvil: Ancho real sin colapso flexbox */
+            <Animated.View
+              style={[
+                styles.marqueeTrack,
+                {
+                  width: singleWidth > 0 ? singleWidth * 2 : 10000,
+                  transform: [{ translateX: animatedValue }],
+                },
+              ]}
+            >
+              <View
+                style={styles.trackGroup}
+                onLayout={(e) => {
+                  const w = e.nativeEvent.layout.width;
+                  if (w > 0 && Math.abs(w - singleWidth) > 1) {
+                    setSingleWidth(w);
+                  }
+                }}
+              >
+                {baseList.map((a, i) => renderTickerItem(a, `m1-${a.id}-${i}`))}
+              </View>
+              <View style={styles.trackGroup}>
+                {baseList.map((a, i) => renderTickerItem(a, `m2-${a.id}-${i}`))}
+              </View>
             </Animated.View>
           )}
         </View>
@@ -210,6 +297,7 @@ export const AvisosBanner = () => {
             style={[
               styles.sheetPanel,
               !isDarkMode && styles.sheetPanelLight,
+              { paddingTop: Math.max(insets.top + 12, 20) },
             ]}
           >
             <View
@@ -421,6 +509,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 4,
     marginRight: 12,
+    zIndex: 2,
   },
   leftControlsLight: {
     backgroundColor: "rgba(168, 85, 247, 0.1)",
@@ -461,16 +550,33 @@ const styles = StyleSheet.create({
   marqueeTrack: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 32,
+    flexWrap: "nowrap",
+  },
+  trackGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "nowrap",
   },
   tickerItem: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    marginRight: 32,
+    flexShrink: 0,
+    ...(Platform.OS === "web"
+      ? ({
+          whiteSpace: "nowrap",
+          display: "inline-flex",
+        } as any)
+      : {}),
+  },
+  urgentIcon: {
+    marginRight: 6,
   },
   tickerText: {
     fontSize: 13,
     color: "#e4e4e7",
+    flexShrink: 0,
+    ...(Platform.OS === "web" ? ({ whiteSpace: "nowrap" } as any) : {}),
   },
   tickerTextLight: {
     color: "#0f172a",
@@ -489,8 +595,8 @@ const styles = StyleSheet.create({
   subLight: { color: "#64748b" },
   textBold: { fontWeight: "bold", color: "#ffffff" },
   textBoldLight: { color: "#0f172a" },
-  textUrgent: { color: "#f43f5e" },
-  textUrgentBold: { fontWeight: "bold", color: "#f43f5e" },
+  textUrgent: { color: "#ff0000" },
+  textUrgentBold: { fontWeight: "bold", color: "#ff0000" },
 
   sheetOverlay: {
     flex: 1,
@@ -504,7 +610,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#0d0d10",
     borderLeftWidth: 1,
     borderLeftColor: "#27272a",
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
   },
   sheetPanelLight: {
     backgroundColor: "#ffffff",
@@ -542,7 +649,7 @@ const styles = StyleSheet.create({
   },
   sheetCardUrgent: {
     borderLeftWidth: 4,
-    borderLeftColor: "#f43f5e",
+    borderLeftColor: "#ff0000",
   },
   sheetCardTop: {
     flexDirection: "row",
@@ -561,7 +668,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     letterSpacing: 1.5,
   },
-  tagUrgent: { color: "#f43f5e" },
+  tagUrgent: { color: "#ff0000" },
   tagNormal: { color: "#a855f7" },
   sheetDateText: { fontSize: 11, color: "#71717a" },
   sheetCardTitle: {
@@ -603,7 +710,7 @@ const styles = StyleSheet.create({
   },
   dialogUrgentBorder: {
     borderLeftWidth: 4,
-    borderLeftColor: "#f43f5e",
+    borderLeftColor: "#ff0000",
     borderColor: "#27272a",
   },
   dialogHeader: {
@@ -620,7 +727,7 @@ const styles = StyleSheet.create({
   urgentBadgeText: {
     fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
     fontSize: 10,
-    color: "#f43f5e",
+    color: "#a1868b",
     fontWeight: "bold",
     letterSpacing: 2,
   },

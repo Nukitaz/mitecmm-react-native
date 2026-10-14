@@ -16,7 +16,6 @@ import { getMapaGeneralUrl } from "../services/mapasService";
 import { obtenerProfesores } from "../services/profesoresService";
 import { useTheme } from "../context/ThemeContext";
 
-// DICCIONARIO DE AULAS MAPEADAS
 export const AULAS_UBICACIONES: Record<
   string,
   { edificioId: string; nombreEdificio: string; planta: "baja" | "alta"; svgId: string }
@@ -188,7 +187,6 @@ export const AULAS_UBICACIONES: Record<
   BODEGA_LCE: { edificioId: "em", nombreEdificio: "Edificio EM", planta: "alta", svgId: "bodega_lce" },
 };
 
-// EDIFICIOS PERMITIDOS CON SUS IDs EXACTOS
 const EDIFICIOS_CLICKEABLES: Record<string, { id: string; nombre: string }> = {
   Edificio_P: { id: "p", nombre: "Edificio P" },
   Edificio_L: { id: "l", nombre: "Edificio L" },
@@ -198,12 +196,13 @@ const EDIFICIOS_CLICKEABLES: Record<string, { id: string; nombre: string }> = {
   Edificio_B: { id: "b", nombre: "Edificio B" },
 };
 
-type Suggestion = {
+export type Suggestion = {
   id: string;
   type: "aula" | "prof" | "materia";
   label: string;
   detail: string;
-  aulaResaltada: string;
+  aulaResaltada?: string;
+  profesorQuery?: string;
 };
 
 let mapaGeneralCache: string | null = null;
@@ -212,6 +211,8 @@ const Mapa = () => {
   const navigation = useNavigation<any>();
   const { isDarkMode } = useTheme();
   const mapaGeneralUrl = getMapaGeneralUrl();
+
+  const bgColor = isDarkMode ? "#08080a" : "#f8fafc";
 
   const [activeBuildingSvgId, setActiveBuildingSvgId] = useState<string | null>(null);
   const [svgContent, setSvgContent] = useState<string | null>(mapaGeneralCache);
@@ -241,9 +242,10 @@ const Mapa = () => {
         return;
       }
 
-      const term = busqueda.toUpperCase();
+      const term = busqueda.toUpperCase().trim();
       let nuevasSugerencias: Suggestion[] = [];
 
+      // 1. Filtrar Aulas estáticas
       Object.keys(AULAS_UBICACIONES).forEach((aula) => {
         if (aula.includes(term)) {
           nuevasSugerencias.push({
@@ -256,32 +258,54 @@ const Mapa = () => {
         }
       });
 
-      const resultadosDB = await obtenerProfesores(busqueda);
-      const docentesAgregados = new Set();
-      const materiasAgregadas = new Set();
+      // 2. Consulta a Supabase (horarios_docentes)
+      try {
+        const resultadosDB = await obtenerProfesores(busqueda);
 
-      resultadosDB?.forEach((item) => {
-        if (item.docente.toUpperCase().includes(term) && !docentesAgregados.has(item.docente)) {
-          docentesAgregados.add(item.docente);
+        const profesoresMap = new Map<string, { totalMaterias: Set<string>; aula: string }>();
+        const materiasAgregadas = new Set<string>();
+
+        resultadosDB?.forEach((item: any) => {
+          const doc = item.docente?.trim();
+          const mat = item.materia?.trim();
+          const aulaClass = item.aula?.trim();
+
+          // Filtrar por Docente
+          if (doc && doc.toUpperCase().includes(term)) {
+            if (!profesoresMap.has(doc)) {
+              profesoresMap.set(doc, { totalMaterias: new Set(), aula: aulaClass });
+            }
+            if (mat) profesoresMap.get(doc)!.totalMaterias.add(mat);
+          }
+
+          // Filtrar por Materia
+          if (mat && mat.toUpperCase().includes(term) && !materiasAgregadas.has(mat)) {
+            materiasAgregadas.add(mat);
+            nuevasSugerencias.push({
+              id: `mat-${item.id || mat}`,
+              type: "materia",
+              label: mat,
+              detail: "MATERIA",
+              aulaResaltada: aulaClass,
+            });
+          }
+        });
+
+        // Formatear resultados de Profesores
+        profesoresMap.forEach((val, docente) => {
+          const count = val.totalMaterias.size;
           nuevasSugerencias.push({
-            id: `prof-${item.id}`,
+            id: `prof-${docente}`,
             type: "prof",
-            label: item.docente,
-            detail: "PROF",
-            aulaResaltada: item.aula,
+            label: docente,
+            detail: count > 0 ? `PROF · ${count} MATS` : "PROFESOR",
+            aulaResaltada: val.aula,
+            profesorQuery: docente,
           });
-        }
-        if (item.materia.toUpperCase().includes(term) && !materiasAgregadas.has(item.materia)) {
-          materiasAgregadas.add(item.materia);
-          nuevasSugerencias.push({
-            id: `mat-${item.id}`,
-            type: "materia",
-            label: item.materia,
-            detail: "MATERIA",
-            aulaResaltada: item.aula,
-          });
-        }
-      });
+        });
+      } catch (err) {
+        console.error("Error al consultar Supabase:", err);
+      }
 
       setSugerencias(nuevasSugerencias.slice(0, 6));
     }, 300);
@@ -293,8 +317,7 @@ const Mapa = () => {
     if (!svgContent) return null;
 
     let modifiedXml = svgContent;
-    
-    // Inyecta el preserveAspectRatio para forzar que el mapa se contenga completo en la pantalla
+
     modifiedXml = modifiedXml.replace(
       /<svg/,
       '<svg width="100%" height="100%" preserveAspectRatio="xMidYMid meet"'
@@ -305,7 +328,6 @@ const Mapa = () => {
       const regex = new RegExp(`(<[^>]+id="${svgId}"[^>]*)(style="[^"]*")?`, "g");
 
       modifiedXml = modifiedXml.replace(regex, (match, p1) => {
-        // Área extendida de clic y trazo táctil
         const extendedClickStyle = "pointer-events: all; cursor: pointer; stroke-width: 12px; stroke: transparent;";
         if (isHovered) {
           return `${p1} style="${extendedClickStyle} filter: drop-shadow(0px 0px 10px #a855f7); transition: all 0.2s;"`;
@@ -333,10 +355,18 @@ const Mapa = () => {
     setBusqueda(item.label);
     setIsFocused(false);
 
-    let ubicacion = AULAS_UBICACIONES[item.aulaResaltada.toUpperCase()];
+    // Redirección si es Profesor
+    if (item.type === "prof") {
+      navigation.navigate("Profesores", { q: item.profesorQuery || item.label });
+      return;
+    }
 
-    if (!ubicacion) {
-      const letraEdificio = item.aulaResaltada.charAt(0).toLowerCase();
+    // Redirección si es Materia o Aula
+    let aulaObjetivo = item.aulaResaltada ? item.aulaResaltada.toUpperCase() : "";
+    let ubicacion = AULAS_UBICACIONES[aulaObjetivo];
+
+    if (!ubicacion && aulaObjetivo) {
+      const letraEdificio = aulaObjetivo.charAt(0).toLowerCase();
       const edificiosValidos = ["a", "b", "c", "f", "g", "i", "l", "o", "p", "e"];
 
       if (edificiosValidos.includes(letraEdificio)) {
@@ -354,8 +384,10 @@ const Mapa = () => {
         id: ubicacion.edificioId,
         nombre: ubicacion.nombreEdificio,
         plantaInicial: ubicacion.planta,
-        aulaResaltada: item.aulaResaltada,
+        aulaResaltada: aulaObjetivo,
       });
+    } else {
+      navigation.navigate("Profesores", { q: item.label });
     }
   };
 
@@ -392,7 +424,7 @@ const Mapa = () => {
                 style={[
                   styles.searchContainer,
                   !isDarkMode && styles.searchContainerLight,
-                  isFocused && (isDarkMode ? styles.searchContainerActive : styles.searchContainerActiveLight),
+                  isFocused && styles.searchContainerActive,
                 ]}
               >
                 <Search
@@ -407,54 +439,49 @@ const Mapa = () => {
                   value={busqueda}
                   onChangeText={setBusqueda}
                   onFocus={() => setIsFocused(true)}
-                  onBlur={() => setTimeout(() => setIsFocused(false), 200)}
+                  onBlur={() => setTimeout(() => setIsFocused(false), 250)}
                   returnKeyType="search"
                 />
               </View>
 
-              {isFocused && busqueda.trim().length >= 2 && (
+              {isFocused && sugerencias.length > 0 && (
                 <View
                   style={[
                     styles.dropdownContainer,
                     !isDarkMode && styles.dropdownContainerLight,
                   ]}
                 >
-                  {sugerencias.length > 0 ? (
-                    sugerencias.map((sug, index) => (
-                      <TouchableOpacity
-                        key={sug.id}
-                        style={[
-                          styles.dropdownItem,
-                          index !== sugerencias.length - 1 &&
-                            (isDarkMode ? styles.dropdownItemBorder : styles.dropdownItemBorderLight),
-                        ]}
-                        activeOpacity={0.7}
-                        onPress={() => handleSelectSuggestion(sug)}
-                      >
-                        <View style={styles.dropdownLeft}>
-                          <IconoTipo type={sug.type} />
-                          <Text
-                            style={[styles.dropdownLabel, !isDarkMode && styles.dropdownLabelLight]}
-                            numberOfLines={1}
-                          >
-                            {sug.label}
-                          </Text>
-                        </View>
-                        <Text style={styles.dropdownDetail}>{sug.detail}</Text>
-                      </TouchableOpacity>
-                    ))
-                  ) : (
-                    <View style={styles.noResultsContainer}>
-                      <Text
-                        style={[
-                          styles.noResultsText,
-                          !isDarkMode && styles.noResultsTextLight,
-                        ]}
-                      >
-                        No se encontraron resultados.
-                      </Text>
-                    </View>
-                  )}
+                  {sugerencias.map((sug, index) => (
+                    <TouchableOpacity
+                      key={sug.id}
+                      style={[
+                        styles.dropdownItem,
+                        index !== sugerencias.length - 1 &&
+                          (isDarkMode ? styles.dropdownItemBorder : styles.dropdownItemBorderLight),
+                      ]}
+                      activeOpacity={0.7}
+                      onPress={() => handleSelectSuggestion(sug)}
+                      {...(Platform.OS === "web"
+                        ? {
+                            onMouseDown: (e: any) => {
+                              e.preventDefault();
+                              handleSelectSuggestion(sug);
+                            },
+                          }
+                        : {})}
+                    >
+                      <View style={styles.dropdownLeft}>
+                        <IconoTipo type={sug.type} />
+                        <Text
+                          style={[styles.dropdownLabel, !isDarkMode && styles.dropdownLabelLight]}
+                          numberOfLines={1}
+                        >
+                          {sug.label}
+                        </Text>
+                      </View>
+                      <Text style={styles.dropdownDetail}>{sug.detail}</Text>
+                    </TouchableOpacity>
+                  ))}
                 </View>
               )}
             </View>
@@ -506,7 +533,7 @@ const Mapa = () => {
                 {processedSvg ? (
                   Platform.OS === "web" ? (
                     <div
-                      style={{ width: "100%", height: "100%" }}
+                      style={{ width: "100%", height: "100%", backgroundColor: bgColor }}
                       dangerouslySetInnerHTML={{ __html: processedSvg }}
                     />
                   ) : (
@@ -525,7 +552,7 @@ const Mapa = () => {
                                   padding: 0;
                                   width: 100%;
                                   height: 100%;
-                                  background-color: #08080a;
+                                  background-color: ${bgColor};
                                   display: flex;
                                   justify-content: center;
                                   align-items: center;
@@ -579,7 +606,8 @@ const Mapa = () => {
                           </html>
                         `,
                       }}
-                      style={{ flex: 1, backgroundColor: "transparent" }}
+                      style={{ flex: 1, backgroundColor: bgColor }}
+                      containerStyle={{ backgroundColor: bgColor }}
                       scrollEnabled={false}
                       scalesPageToFit={true}
                       onMessage={(event) => {
@@ -609,16 +637,9 @@ const Mapa = () => {
 };
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: "#08080a",
-  },
-  screenLight: {
-    backgroundColor: "#f8fafc",
-  },
-  container: {
-    flexGrow: 1,
-  },
+  screen: { flex: 1, backgroundColor: "transparent" },
+  screenLight: { backgroundColor: "transparent" },
+  container: { flexGrow: 1 },
   main: {
     flex: 1,
     paddingHorizontal: 16,
@@ -631,7 +652,7 @@ const styles = StyleSheet.create({
   headerSection: {
     alignItems: "center",
     marginBottom: 24,
-    zIndex: 50,
+    zIndex: 9999,
   },
   modCode: {
     fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
@@ -644,39 +665,19 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     marginTop: 4,
   },
-  titleLight: {
-    color: "#0f172a",
-  },
+  titleLight: { color: "#0f172a" },
   subtitle: {
     fontSize: 14,
     color: "#a1a1aa",
     marginTop: 4,
   },
-  subtitleLight: {
-    color: "#64748b",
-  },
-  noResultsContainer: {
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  noResultsText: {
-    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
-    fontSize: 13,
-    color: "#71717a",
-    letterSpacing: 1,
-    textAlign: "center",
-  },
-  noResultsTextLight: {
-    color: "#64748b",
-  },
+  subtitleLight: { color: "#64748b" },
   searchWrapper: {
     width: "100%",
     maxWidth: 600,
     marginTop: 20,
     position: "relative",
-    zIndex: 100,
+    zIndex: 10000,
   },
   searchContainer: {
     flexDirection: "row",
@@ -693,19 +694,8 @@ const styles = StyleSheet.create({
   },
   searchContainerActive: {
     borderColor: "#a855f7",
-    backgroundColor: "#18181b",
   },
-  searchContainerActiveLight: {
-    borderColor: "#a855f7",
-    backgroundColor: "#ffffff",
-    shadowColor: "#a855f7",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-  },
-  searchIcon: {
-    marginRight: 10,
-  },
+  searchIcon: { marginRight: 10 },
   searchInput: {
     flex: 1,
     paddingVertical: 14,
@@ -713,40 +703,39 @@ const styles = StyleSheet.create({
     fontSize: 15,
     outlineStyle: "none" as any,
   },
-  searchInputLight: {
-    color: "#0f172a",
-  },
+  searchInputLight: { color: "#0f172a" },
   dropdownContainer: {
     position: "absolute",
     top: 54,
     left: 0,
     right: 0,
-    backgroundColor: "#18181c",
+    backgroundColor: "#121118",
     borderWidth: 1,
-    borderColor: "#27272a",
-    borderRadius: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.5,
-    shadowRadius: 15,
-    elevation: 10,
-    zIndex: 999,
+    borderColor: "rgba(168, 85, 247, 0.4)",
+    borderRadius: 6,
+    shadowColor: "#a855f7",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 25,
+    zIndex: 10001,
   },
   dropdownContainerLight: {
     backgroundColor: "#ffffff",
     borderColor: "#e2e8f0",
+    shadowColor: "#000",
     shadowOpacity: 0.1,
   },
   dropdownItem: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 14,
+    paddingVertical: 12,
     paddingHorizontal: 16,
   },
   dropdownItemBorder: {
     borderBottomWidth: 1,
-    borderBottomColor: "#27272a",
+    borderBottomColor: "#1e1e24",
   },
   dropdownItemBorderLight: {
     borderBottomWidth: 1,
@@ -761,18 +750,17 @@ const styles = StyleSheet.create({
   },
   dropdownLabel: {
     color: "#ffffff",
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "bold",
     textTransform: "uppercase",
   },
-  dropdownLabelLight: {
-    color: "#0f172a",
-  },
+  dropdownLabelLight: { color: "#0f172a" },
   dropdownDetail: {
     fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
     fontSize: 10,
-    color: "#a855f7",
-    letterSpacing: 2,
+    color: "#c084fc",
+    letterSpacing: 1.5,
+    fontWeight: "600",
   },
   mapCard: {
     backgroundColor: "#0d0d10",
@@ -858,9 +846,7 @@ const styles = StyleSheet.create({
     width: "100%",
     aspectRatio: Platform.OS === "web" ? 1.43 : 1.3,
   },
-  textLightSecondary: {
-    color: "#64748b",
-  },
+  textLightSecondary: { color: "#64748b" },
 });
 
 export default Mapa;
