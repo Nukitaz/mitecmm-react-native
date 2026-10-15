@@ -24,9 +24,10 @@ type Suggestion = {
   profesorQuery?: string;
 };
 
-// Tarjeta memorizada extremadamente ligera para GPU en Android
+// Tarjeta memorizada con validación estricta de navegación
 const ProfesorCard = React.memo(({ prof }: { prof: HorarioDocente }) => {
   const { isDarkMode } = useTheme();
+  const navigation = useNavigation<any>();
   const [isHovered, setIsHovered] = useState(false);
   
   const initials = useMemo(() => {
@@ -38,6 +39,22 @@ const ProfesorCard = React.memo(({ prof }: { prof: HorarioDocente }) => {
       .join("")
       .toUpperCase();
   }, [prof.docente]);
+
+  // Se consulta si la ubicación existe estrictamente en AULAS_UBICACIONES
+  const aulaObjetivo = prof.aula ? prof.aula.trim().toUpperCase() : "";
+  const ubicacionValida = AULAS_UBICACIONES[aulaObjetivo];
+
+  const handlePressAula = () => {
+    // Si el aula no está registrada explícitamente en la lista, no redirige a ningún lado
+    if (!ubicacionValida) return;
+
+    navigation.navigate("Edificio", {
+      id: ubicacionValida.edificioId,
+      nombre: ubicacionValida.nombreEdificio,
+      plantaInicial: ubicacionValida.planta,
+      aulaResaltada: aulaObjetivo,
+    });
+  };
 
   return (
     <View
@@ -90,12 +107,24 @@ const ProfesorCard = React.memo(({ prof }: { prof: HorarioDocente }) => {
         </Text>
       </View>
       
-      <View style={[styles.aulaContainer, !isDarkMode && styles.aulaContainerLight]}>
-        <MapPin size={14} color="#a855f7" />
+      {/* Botón interactivo para el aula con opacidad sutil si no está mapeada */}
+      <TouchableOpacity
+        style={[
+          styles.aulaContainer,
+          !isDarkMode && styles.aulaContainerLight,
+          !ubicacionValida && { opacity: 0.65 },
+        ]}
+        onPress={handlePressAula}
+        activeOpacity={ubicacionValida ? 0.7 : 1}
+      >
+        <MapPin
+          size={14}
+          color={ubicacionValida ? "#a855f7" : isDarkMode ? "#71717a" : "#94a3b8"}
+        />
         <Text style={[styles.aulaText, !isDarkMode && styles.textLight]}>
           AULA {prof.aula}
         </Text>
-      </View>
+      </TouchableOpacity>
     </View>
   );
 });
@@ -203,22 +232,10 @@ const Profesores = ({ route }: any) => {
 
     if (item.type === "prof") return;
 
-    let aulaObjetivo = item.aulaResaltada ? item.aulaResaltada.toUpperCase() : "";
-    let ubicacion = AULAS_UBICACIONES[aulaObjetivo];
+    const aulaObjetivo = item.aulaResaltada ? item.aulaResaltada.toUpperCase() : "";
+    const ubicacion = AULAS_UBICACIONES[aulaObjetivo];
 
-    if (!ubicacion && aulaObjetivo) {
-      const letraEdificio = aulaObjetivo.charAt(0).toLowerCase();
-      const edificiosValidos = ["a", "b", "c", "f", "g", "i", "l", "o", "p", "e"];
-      if (edificiosValidos.includes(letraEdificio)) {
-        ubicacion = {
-          edificioId: letraEdificio === "e" ? "em" : letraEdificio,
-          nombreEdificio: `Edificio ${letraEdificio.toUpperCase()}`,
-          planta: "alta",
-          svgId: "",
-        };
-      }
-    }
-
+    // Solo redirige si existe explícitamente en el mapa de aulas
     if (ubicacion) {
       navigation.navigate("Edificio", {
         id: ubicacion.edificioId,
@@ -246,7 +263,6 @@ const Profesores = ({ route }: any) => {
 
   const keyExtractor = useCallback((item: HorarioDocente, index: number) => item.id || String(index), []);
 
-  // Encabezado estático para la FlatList
   const ListHeaderComponent = useMemo(() => (
     <View style={styles.headerWrapper}>
       <View style={styles.headerSection}>
@@ -351,7 +367,6 @@ const Profesores = ({ route }: any) => {
         }
         contentContainerStyle={styles.container}
         keyboardShouldPersistTaps="handled"
-        // Optimización directa para hardware Android
         removeClippedSubviews={Platform.OS === "android"}
         initialNumToRender={8}
         maxToRenderPerBatch={8}
