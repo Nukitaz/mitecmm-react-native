@@ -24,8 +24,14 @@ type Suggestion = {
   profesorQuery?: string;
 };
 
-// Tarjeta memorizada con validación estricta de navegación
-const ProfesorCard = React.memo(({ prof }: { prof: HorarioDocente }) => {
+// Nuevo tipo para agrupar las clases por docente
+type ProfesorAgrupado = {
+  docente: string;
+  clases: HorarioDocente[];
+};
+
+// Tarjeta modificada para iterar sobre las múltiples clases de un solo profesor
+const ProfesorCard = React.memo(({ prof }: { prof: ProfesorAgrupado }) => {
   const { isDarkMode } = useTheme();
   const navigation = useNavigation<any>();
   const [isHovered, setIsHovered] = useState(false);
@@ -39,22 +45,6 @@ const ProfesorCard = React.memo(({ prof }: { prof: HorarioDocente }) => {
       .join("")
       .toUpperCase();
   }, [prof.docente]);
-
-  // Se consulta si la ubicación existe estrictamente en AULAS_UBICACIONES
-  const aulaObjetivo = prof.aula ? prof.aula.trim().toUpperCase() : "";
-  const ubicacionValida = AULAS_UBICACIONES[aulaObjetivo];
-
-  const handlePressAula = () => {
-    // Si el aula no está registrada explícitamente en la lista, no redirige a ningún lado
-    if (!ubicacionValida) return;
-
-    navigation.navigate("Edificio", {
-      id: ubicacionValida.edificioId,
-      nombre: ubicacionValida.nombreEdificio,
-      plantaInicial: ubicacionValida.planta,
-      aulaResaltada: aulaObjetivo,
-    });
-  };
 
   return (
     <View
@@ -79,52 +69,71 @@ const ProfesorCard = React.memo(({ prof }: { prof: HorarioDocente }) => {
             {prof.docente}
           </Text>
           <Text style={[styles.grupoText, !isDarkMode && styles.textLightSecondary]}>
-            GRUPO {prof.grupo ? prof.grupo : "N/A"}
+            {prof.clases.length} CLASE{prof.clases.length !== 1 ? 'S' : ''} PROGRAMADA{prof.clases.length !== 1 ? 'S' : ''}
           </Text>
         </View>
       </View>
       
-      <View style={[styles.divider, !isDarkMode && styles.dividerLight]} />
-      
-      <View style={styles.infoRow}>
-        <Book size={16} color={isDarkMode ? "#71717a" : "#64748b"} />
-        <Text style={[styles.infoText, !isDarkMode && styles.textLight]}>
-          {prof.materia}
-        </Text>
-      </View>
-      
-      <View style={styles.infoRow}>
-        <Calendar size={16} color={isDarkMode ? "#71717a" : "#64748b"} />
-        <Text style={[styles.infoText, !isDarkMode && styles.textLight]}>
-          {prof.dia}
-        </Text>
-      </View>
-      
-      <View style={styles.infoRow}>
-        <Clock size={16} color={isDarkMode ? "#71717a" : "#64748b"} />
-        <Text style={[styles.infoText, !isDarkMode && styles.textLight]}>
-          {prof.hora_inicio} → {prof.hora_fin}
-        </Text>
-      </View>
-      
-      {/* Botón interactivo para el aula con opacidad sutil si no está mapeada */}
-      <TouchableOpacity
-        style={[
-          styles.aulaContainer,
-          !isDarkMode && styles.aulaContainerLight,
-          !ubicacionValida && { opacity: 0.65 },
-        ]}
-        onPress={handlePressAula}
-        activeOpacity={ubicacionValida ? 0.7 : 1}
-      >
-        <MapPin
-          size={14}
-          color={ubicacionValida ? "#a855f7" : isDarkMode ? "#71717a" : "#94a3b8"}
-        />
-        <Text style={[styles.aulaText, !isDarkMode && styles.textLight]}>
-          AULA {prof.aula}
-        </Text>
-      </TouchableOpacity>
+      {/* Mapeo de todas las clases del profesor dentro de la misma tarjeta */}
+      {prof.clases.map((clase, index) => {
+        const aulaObjetivo = clase.aula ? clase.aula.trim().toUpperCase() : "";
+        const ubicacionValida = AULAS_UBICACIONES[aulaObjetivo];
+
+        const handlePressAula = () => {
+          if (!ubicacionValida) return;
+          navigation.navigate("Edificio", {
+            id: ubicacionValida.edificioId,
+            nombre: ubicacionValida.nombreEdificio,
+            plantaInicial: ubicacionValida.planta,
+            aulaResaltada: aulaObjetivo,
+          });
+        };
+
+        return (
+          <View key={clase.id || index} style={{ marginTop: index > 0 ? 16 : 0 }}>
+            <View style={[styles.divider, !isDarkMode && styles.dividerLight]} />
+            
+            <View style={styles.infoRow}>
+              <Book size={16} color={isDarkMode ? "#71717a" : "#64748b"} />
+              <Text style={[styles.infoText, !isDarkMode && styles.textLight]}>
+                {clase.materia} {clase.grupo ? `(Gpo. ${clase.grupo})` : ""}
+              </Text>
+            </View>
+            
+            <View style={styles.infoRow}>
+              <Calendar size={16} color={isDarkMode ? "#71717a" : "#64748b"} />
+              <Text style={[styles.infoText, !isDarkMode && styles.textLight]}>
+                {clase.dia}
+              </Text>
+            </View>
+            
+            <View style={styles.infoRow}>
+              <Clock size={16} color={isDarkMode ? "#71717a" : "#64748b"} />
+              <Text style={[styles.infoText, !isDarkMode && styles.textLight]}>
+                {clase.hora_inicio} → {clase.hora_fin}
+              </Text>
+            </View>
+            
+            <TouchableOpacity
+              style={[
+                styles.aulaContainer,
+                !isDarkMode && styles.aulaContainerLight,
+                !ubicacionValida && { opacity: 0.65 },
+              ]}
+              onPress={handlePressAula}
+              activeOpacity={ubicacionValida ? 0.7 : 1}
+            >
+              <MapPin
+                size={14}
+                color={ubicacionValida ? "#a855f7" : isDarkMode ? "#71717a" : "#94a3b8"}
+              />
+              <Text style={[styles.aulaText, !isDarkMode && styles.textLight]}>
+                AULA {clase.aula}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        );
+      })}
     </View>
   );
 });
@@ -148,7 +157,6 @@ const Profesores = ({ route }: any) => {
     }
   }, [route?.params?.q]);
 
-  // Consulta con Debounce de 300ms
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
       setIsLoading(true);
@@ -226,6 +234,19 @@ const Profesores = ({ route }: any) => {
     return () => clearTimeout(delayDebounceFn);
   }, [busqueda]);
 
+  // Lógica nueva para agrupar los datos obtenidos antes de renderizar
+  const profesoresAgrupados = useMemo(() => {
+    const grupos = new Map<string, ProfesorAgrupado>();
+    profesores.forEach((item) => {
+      const nombre = item.docente || "Docente Desconocido";
+      if (!grupos.has(nombre)) {
+        grupos.set(nombre, { docente: nombre, clases: [] });
+      }
+      grupos.get(nombre)!.clases.push(item);
+    });
+    return Array.from(grupos.values());
+  }, [profesores]);
+
   const handleSelectSuggestion = useCallback((item: Suggestion) => {
     setIsFocused(false);
     setBusqueda(item.label);
@@ -235,7 +256,6 @@ const Profesores = ({ route }: any) => {
     const aulaObjetivo = item.aulaResaltada ? item.aulaResaltada.toUpperCase() : "";
     const ubicacion = AULAS_UBICACIONES[aulaObjetivo];
 
-    // Solo redirige si existe explícitamente en el mapa de aulas
     if (ubicacion) {
       navigation.navigate("Edificio", {
         id: ubicacion.edificioId,
@@ -257,11 +277,11 @@ const Profesores = ({ route }: any) => {
     }
   };
 
-  const renderCard = useCallback(({ item }: { item: HorarioDocente }) => (
+  const renderCard = useCallback(({ item }: { item: ProfesorAgrupado }) => (
     <ProfesorCard prof={item} />
   ), []);
 
-  const keyExtractor = useCallback((item: HorarioDocente, index: number) => item.id || String(index), []);
+  const keyExtractor = useCallback((item: ProfesorAgrupado, index: number) => item.docente + index, []);
 
   const ListHeaderComponent = useMemo(() => (
     <View style={styles.headerWrapper}>
@@ -337,20 +357,21 @@ const Profesores = ({ route }: any) => {
       </View>
 
       <View style={styles.resultsHeader}>
+        {/* Actualizado para mostrar cantidad de docentes únicos, no filas crudas de la BD */}
         <Text style={[styles.resultsText, !isDarkMode && styles.textLightSecondary]}>
-          {profesores.length} RESULTADOS
+          {profesoresAgrupados.length} DOCENTES
         </Text>
         <View style={styles.dot} />
         <Text style={styles.activeText}>EN CLASE AHORA</Text>
       </View>
     </View>
-  ), [isDarkMode, isFocused, busqueda, sugerencias, profesores.length, handleSelectSuggestion]);
+  ), [isDarkMode, isFocused, busqueda, sugerencias, profesoresAgrupados.length, handleSelectSuggestion]);
 
   return (
     <View style={[styles.screen, !isDarkMode && styles.screenLight]}>
       <Navbar />
       <FlatList
-        data={profesores}
+        data={profesoresAgrupados}
         renderItem={renderCard}
         keyExtractor={keyExtractor}
         ListHeaderComponent={ListHeaderComponent}
