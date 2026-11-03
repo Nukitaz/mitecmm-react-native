@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AlertTriangle, ChevronRight, X } from "lucide-react-native";
 import { fetchAvisos, type Aviso } from "../services/avisosService";
 import { useTheme } from "../context/ThemeContext";
+import { useReduceMotion } from "../hooks/useReduceMotion";
 
 const formatFecha = (iso: string) => {
   try {
@@ -86,6 +87,9 @@ export const AvisosBanner = () => {
   const [avisos, setAvisos] = useState<Aviso[]>([]);
   const [selected, setSelected] = useState<Aviso | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  // Con "reducir movimiento" la marquesina no se anima: se muestra una fila
+  // fija que el usuario puede deslizar a mano.
+  const reducirMovimiento = useReduceMotion();
 
   // Ancho medido de un bloque para animación continua en Android
   const [singleWidth, setSingleWidth] = useState(0);
@@ -110,7 +114,7 @@ export const AvisosBanner = () => {
 
   // Animación continua y fluida para Android / iOS
   useEffect(() => {
-    if (Platform.OS === "web" || singleWidth === 0 || baseList.length === 0) return;
+    if (Platform.OS === "web" || reducirMovimiento || singleWidth === 0 || baseList.length === 0) return;
 
     animatedValue.setValue(0);
     const duration = Math.max(12000, (singleWidth / 42) * 1000);
@@ -126,7 +130,7 @@ export const AvisosBanner = () => {
     animation.start();
 
     return () => animation.stop();
-  }, [singleWidth, baseList, animatedValue]);
+  }, [singleWidth, baseList, animatedValue, reducirMovimiento]);
 
   const renderTickerItem = (a: Aviso, key: string) => (
     <TouchableOpacity
@@ -203,6 +207,15 @@ export const AvisosBanner = () => {
             >
               Sin avisos por el momento
             </Text>
+          ) : reducirMovimiento ? (
+            /* Sin animación: una sola copia de los avisos, deslizable a mano */
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.trackGroup}
+            >
+              {avisos.map((a) => renderTickerItem(a, `s-${a.id}`))}
+            </ScrollView>
           ) : Platform.OS === "web" ? (
             /* Versión Web: CSS nativo con soporte hover */
             <div
@@ -231,6 +244,9 @@ export const AvisosBanner = () => {
                     }
                     .marquee-track-web:hover {
                       animation-play-state: paused;
+                    }
+                    @media (prefers-reduced-motion: reduce) {
+                      .marquee-track-web { animation: none; }
                     }
                     .marquee-group-web {
                       display: flex !important;
