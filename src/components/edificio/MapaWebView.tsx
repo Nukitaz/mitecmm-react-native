@@ -1,5 +1,5 @@
 import React, { forwardRef, useEffect, useRef } from "react";
-import { View, StyleSheet, Platform } from "react-native";
+import { Platform } from "react-native";
 import { WebView, WebViewMessageEvent } from "react-native-webview";
 import { getInjectedJavaScript } from "../../constants/scriptInject";
 import { esIdSvgValido } from "../../utils/sanitize";

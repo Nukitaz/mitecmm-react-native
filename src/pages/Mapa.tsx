@@ -344,7 +344,7 @@ const Mapa = () => {
       const isHovered = activeBuildingSvgId === svgId;
       const regex = new RegExp(`(<[^>]+id="${svgId}"[^>]*)(style="[^"]*")?`, "g");
 
-      modifiedXml = modifiedXml.replace(regex, (match, p1) => {
+      modifiedXml = modifiedXml.replace(regex, (_coincidencia, p1) => {
         const extendedClickStyle = "pointer-events: all; cursor: pointer; stroke-width: 12px; stroke: transparent;";
         if (isHovered) {
           return `${p1} style="${extendedClickStyle} filter: drop-shadow(0px 0px 10px #a855f7); transition: all 0.2s;"`;

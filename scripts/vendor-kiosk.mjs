@@ -1,7 +1,7 @@
 /**
  * Genera los archivos del motor 3D a partir de una única fuente:
  *   src/components/mapa3d/runtime/kiosk.html
- *   src/components/mapa3d/runtime/kiosk-runtime.js
+ *   src/components/mapa3d/runtime/etiquetas.js + kiosk-runtime.js
  *   node_modules/three/build/three.min.js   (versión fija en package.json)
  *
  * Salidas (no se versionan, ver .gitignore):
@@ -25,7 +25,9 @@ const escribir = (p, contenido) => {
 };
 
 const three = leer("node_modules/three/build/three.min.js");
-const runtime = leer("src/components/mapa3d/runtime/kiosk-runtime.js");
+// Las etiquetas (fuente única, también usada por la app) van antes del motor.
+const runtime =
+  leer("src/components/mapa3d/runtime/etiquetas.js") + "\n" + leer("src/components/mapa3d/runtime/kiosk-runtime.js");
 const plantilla = leer("src/components/mapa3d/runtime/kiosk.html");
 
 const version = createHash("sha256").update(three).update(runtime).update(plantilla).digest("hex").slice(0, 12);

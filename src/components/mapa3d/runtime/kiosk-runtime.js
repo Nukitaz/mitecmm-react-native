@@ -238,34 +238,58 @@
       return texture;
     }
 
-    function createClassroomBillboard(shortCode, category) {
-      var texture = texturaDe("aula|" + category + "|" + shortCode, function () {
-      var canvas = document.createElement("canvas");
-      canvas.width = 256;
-      canvas.height = 128;
-      var ctx = canvas.getContext("2d");
-
-      ctx.fillStyle = "#ffffff";
-      ctx.strokeStyle = "#cbd5e1";
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      if (ctx.roundRect) {
-        ctx.roundRect(6, 6, 244, 116, 20);
-      } else {
-        ctx.rect(6, 6, 244, 116);
+    /** Ajusta el tamaño de letra para que el texto quepa en `anchoMax` (mín. `minimo` px). */
+    function fuenteQueCabe(ctx, texto, maximo, minimo, anchoMax) {
+      var tam = maximo;
+      ctx.font = "bold " + tam + "px -apple-system, BlinkMacSystemFont, sans-serif";
+      while (tam > minimo && ctx.measureText(texto).width > anchoMax) {
+        tam -= 2;
+        ctx.font = "bold " + tam + "px -apple-system, BlinkMacSystemFont, sans-serif";
       }
-      ctx.fill();
-      ctx.stroke();
+      if (ctx.measureText(texto).width <= anchoMax) return texto;
+      // Aun con la letra mínima no cabe: se recorta con "…"
+      var recortado = texto;
+      while (recortado.length > 1 && ctx.measureText(recortado + "…").width > anchoMax) recortado = recortado.slice(0, -1);
+      return recortado + "…";
+    }
 
-      ctx.fillStyle = "#64748b";
-      ctx.font = "bold 20px -apple-system, BlinkMacSystemFont, sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText(category || "AULA", 128, 42);
+    function createClassroomBillboard(codigo, categoria) {
+      var texture = texturaDe("aula|" + categoria + "|" + codigo, function () {
+        var canvas = document.createElement("canvas");
+        canvas.width = 256;
+        canvas.height = 128;
+        var ctx = canvas.getContext("2d");
 
-      ctx.fillStyle = "#0f172a";
-      ctx.font = "bold 46px -apple-system, BlinkMacSystemFont, sans-serif";
-      ctx.fillText(shortCode, 128, 92);
-      return canvas;
+        // Tarjeta clara en modo claro; oscura y con borde suave en modo oscuro.
+        ctx.fillStyle = isDark ? "#1e293b" : "#ffffff";
+        ctx.strokeStyle = isDark ? "#475569" : "#cbd5e1";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        if (ctx.roundRect) {
+          ctx.roundRect(6, 6, 244, 116, 20);
+        } else {
+          ctx.rect(6, 6, 244, 116);
+        }
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.textAlign = "center";
+        ctx.textBaseline = "alphabetic";
+        if (categoria) {
+          ctx.fillStyle = isDark ? "#94a3b8" : "#64748b";
+          var cat = fuenteQueCabe(ctx, categoria, 20, 14, 220);
+          ctx.fillText(cat, 128, 42);
+          ctx.fillStyle = isDark ? "#f1f5f9" : "#0f172a";
+          var cod = fuenteQueCabe(ctx, codigo, 46, 20, 228);
+          ctx.fillText(cod, 128, 94);
+        } else {
+          // Sin categoría: el nombre ocupa la tarjeta, centrado verticalmente.
+          ctx.fillStyle = isDark ? "#f1f5f9" : "#0f172a";
+          var solo = fuenteQueCabe(ctx, codigo, 40, 18, 228);
+          ctx.textBaseline = "middle";
+          ctx.fillText(solo, 128, 66);
+        }
+        return canvas;
       });
 
       var mat = new THREE.SpriteMaterial({ map: texture, depthTest: true });
@@ -356,57 +380,8 @@
       return sprite;
     }
 
-    function getServiceType(rawId) {
-      var lower = (rawId || "").toLowerCase();
-      if (lower.indexOf("bano") !== -1 || lower.indexOf("sanitario") !== -1 || lower.indexOf("wc") !== -1) return "restroom";
-      if (lower.indexOf("medico") !== -1 || lower.indexOf("consultorio") !== -1) return "medical";
-      if (lower.indexOf("vigilancia") !== -1 || lower.indexOf("paqueteria") !== -1) return "security";
-      if (lower.indexOf("escalera") !== -1) return "stairs";
-      if (lower.indexOf("carga") !== -1 || lower.indexOf("mantenimiento") !== -1) return "electric";
-      return null;
-    }
-
-    function getShortCode(rawId) {
-      var lower = (rawId || "").toLowerCase();
-      var aulaM = lower.match(/aula_([a-z0-9]+)/);
-      if (aulaM) return aulaM[1].toUpperCase();
-
-      var siglas = {
-        laboratorio_de_tecnologias_de_la_informacion_lti: "LTI",
-        laboratorio_de_redes_lr: "LR",
-        laboratorio_de_desarrollo_de_software_lds: "LDS",
-        laboratorio_de_ingenieria_de_software_lis: "LIS",
-        laboratorio_de_tecnologias_emergentes_let: "LET",
-        laboratorio_de_inteligencia_artificial_lia: "LIA",
-        laboratorio_de_computo_sistemas_lcs: "LCS",
-        laboratorio_de_analisis_y_ciencia_de_datos_lacd: "LACD",
-        laboratorio_de_worstation_ibm_lwi: "LWI",
-        laboratorio_de_quimica: "QUÍMICA",
-        laboratorio_de_fisica: "FÍSICA",
-        laboratorio_de_manufactura: "MANUF.",
-        laboratorio_de_metodos: "MÉTODOS",
-        laboratorio_de_metrologia_lme: "LME",
-        laboratorio_de_hidraulica_lh: "LH",
-        mesa_de_ciclos: "CICLOS",
-        area_de_procesos_de_manufactura: "PROCESOS",
-        area_de_manufactura_cnc: "CNC",
-        area_de_tableros_de_control_electrico: "TABLEROS",
-        area_de_soldadura: "SOLDADURA",
-        sala_de_docentes: "DOCENTES",
-        sala_de_maestros: "MAESTROS",
-        control_escolar: "CONTROL",
-        jefatura_de_redes: "REDES",
-        jefatura_de_servicios_escolares: "ESCOLARES",
-        titulacion: "TITULACIÓN",
-        cajas: "CAJAS",
-        auditorio: "AUDITORIO",
-      };
-      if (siglas[lower]) return siglas[lower];
-
-      var words = lower.replace(/^edificio_?/, "").replace(/_/g, " ").split(" ");
-      if (words.length >= 2) return (words[0].slice(0, 4) + " " + words[1].slice(0, 3)).toUpperCase();
-      return lower.slice(0, 7).toUpperCase();
-    }
+    // Etiquetas y tipos de servicio: fuente única compartida con la app (etiquetas.js).
+    var Etiquetas = window.MiTecmmEtiquetas;
 
     // 7. Parseo del SVG y Construcción del Edificio
     function buildFloorFromSvg(svgText) {
@@ -603,15 +578,14 @@
           interactiveObjects.push(roomMesh);
 
           // D. Billboard
-          var serviceType = getServiceType(room.id);
+          var serviceType = Etiquetas.tipoServicio(room.id);
           var billboardSprite = null;
 
           if (serviceType) {
             billboardSprite = createServiceBillboard(serviceType);
           } else {
-            var shortCode = getShortCode(room.id);
-            var category = room.id.toLowerCase().indexOf("lab") !== -1 ? "LAB" : "AULA";
-            billboardSprite = createClassroomBillboard(shortCode, category);
+            var et = Etiquetas.etiqueta(room.id);
+            billboardSprite = createClassroomBillboard(et.codigo, et.categoria);
           }
           billboardSprite.position.set(worldX, roomExtrudeHeight + 4.2, worldZ);
 

@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Platform } from "react-native";
+import React, { useState, useEffect, useMemo } from "react";
+import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { Navbar } from "../components/Navbar";
 import { EdificioHeader } from "../components/edificio/EdificioHeader";
 import { FloorSelector } from "../components/edificio/FloorSelector";
@@ -14,6 +14,7 @@ import {
   MENSAJES_ERROR_PLANO,
 } from "../services/mapasService";
 import { log } from "../utils/log";
+import { nombreLegible } from "../components/mapa3d/runtime/etiquetas";
 import { AULAS_UBICACIONES } from "./Mapa";
 import { useTheme } from "../context/ThemeContext";
 import { esIdSvgValido, normalizarAulaParam } from "../utils/sanitize";
@@ -81,7 +82,6 @@ const Edificio = ({ route }: any) => {
   );
   const plantaInicial: "baja" | "alta" = route?.params?.plantaInicial === "alta" ? "alta" : "baja";
 
-  const webViewRef = useRef<any>(null);
 
   const [modoVista, setModoVista] = useState<"2d" | "3d">("3d");
   const [aulaResaltada, setAulaResaltada] = useState<string | null>(
@@ -271,7 +271,7 @@ const Edificio = ({ route }: any) => {
             ]}
           >
             <Text style={styles.resaltadoText}>
-              RESALTADO: {aulaResaltada.toUpperCase()}
+              RESALTADO: {targetSvgId ? nombreLegible(targetSvgId) : aulaResaltada.toUpperCase()}
             </Text>
             <TouchableOpacity onPress={() => setAulaResaltada(null)}>
               <Text style={styles.quitarText}>quitar</Text>
@@ -315,7 +315,6 @@ const Edificio = ({ route }: any) => {
                   />
                 ) : (
                   <MapaWebView
-                    ref={webViewRef}
                     svgBaja={processedBaja}
                     svgAlta={processedAlta}
                     planta={planta}
