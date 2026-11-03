@@ -1,6 +1,6 @@
 import React, { forwardRef, useEffect, useRef } from "react";
 import { View, StyleSheet, Platform } from "react-native";
-import { WebView } from "react-native-webview";
+import { WebView, WebViewMessageEvent } from "react-native-webview";
 import { getInjectedJavaScript } from "../../constants/scriptInject";
 import { esIdSvgValido } from "../../utils/sanitize";
 import { PROPS_WEBVIEW_SEGURO } from "../../constants/webviewSeguro";
@@ -15,7 +15,9 @@ interface MapaWebViewProps {
   isDarkMode: boolean;
 }
 
-export const MapaWebView = forwardRef<WebView, MapaWebViewProps>(
+// Nota: react-native-webview 14 declara `WebView<P = undefined>` con props `WebViewProps & P`;
+// con P = undefined el tipo se reduce a never en TS 6, por eso se usa WebView<object>.
+export const MapaWebView = forwardRef<WebView<object>, MapaWebViewProps>(
   ({ svgBaja, svgAlta, planta = "baja", targetSvgId, onAulaClick, isDarkMode }, ref) => {
     const capaBajaRef = useRef<HTMLDivElement | null>(null);
     const capaAltaRef = useRef<HTMLDivElement | null>(null);
@@ -231,7 +233,7 @@ export const MapaWebView = forwardRef<WebView, MapaWebViewProps>(
         containerStyle={{ backgroundColor: bgColor }}
         scrollEnabled={true}
         scalesPageToFit={true}
-        onMessage={(event) => {
+        onMessage={(event: WebViewMessageEvent) => {
           try {
             const data = JSON.parse(event.nativeEvent.data);
             if (data?.type === "AULA_CLICK" && typeof data.id === "string" && data.id.length <= 120) {

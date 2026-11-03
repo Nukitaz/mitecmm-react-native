@@ -8,7 +8,7 @@ import {
   Platform,
   TextInput,
 } from "react-native";
-import { WebView } from "react-native-webview";
+import { WebView, WebViewMessageEvent } from "react-native-webview";
 import { useNavigation } from "@react-navigation/native";
 import { Search, User, Book, MapPin } from "lucide-react-native";
 import { Navbar } from "../components/Navbar";
@@ -627,7 +627,7 @@ const Mapa = () => {
                       containerStyle={{ backgroundColor: bgColor }}
                       scrollEnabled={false}
                       scalesPageToFit={true}
-                      onMessage={(event) => {
+                      onMessage={(event: WebViewMessageEvent): void => {
                         try {
                           const data = JSON.parse(event.nativeEvent.data);
                           if (data.type === "BUILDING_CLICK" && data.id) {

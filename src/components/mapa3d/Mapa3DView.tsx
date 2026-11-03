@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useCallback } from "react";
 import { View, StyleSheet, Platform, StyleProp, ViewStyle, ActivityIndicator, Text } from "react-native";
-import { WebView } from "react-native-webview";
+import { WebView, WebViewMessageEvent } from "react-native-webview";
 import { PROPS_WEBVIEW_SEGURO } from "../../constants/webviewSeguro";
 import { esIdSvgValido } from "../../utils/sanitize";
 import { KIOSK_HTML_NATIVE, KIOSK_VERSION } from "../../vendor/kioskBundle";
@@ -36,7 +36,9 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
   onError,
   style,
 }) => {
-  const webViewRef = useRef<WebView>(null);
+  // Nota: react-native-webview 14 declara `WebView<P = undefined>` con props `WebViewProps & P`;
+  // con P = undefined el tipo se reduce a never en TS 6, por eso se usa WebView<object>.
+  const webViewRef = useRef<WebView<object>>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   // Valores actuales para responder al saludo del motor sin recrear listeners.
@@ -175,7 +177,7 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
         {...PROPS_WEBVIEW_SEGURO}
         source={{ html: KIOSK_HTML_NATIVE.replace("<body>", `<body class="${isDarkMode ? "dark" : "light"}">`) }}
         style={[styles.webview, { backgroundColor: fondo }]}
-        onMessage={(event) => procesarMensaje(event.nativeEvent.data)}
+        onMessage={(event: WebViewMessageEvent) => procesarMensaje(event.nativeEvent.data)}
         javaScriptEnabled={true}
         domStorageEnabled={false}
         scalesPageToFit={false}
