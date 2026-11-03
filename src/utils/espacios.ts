@@ -15,7 +15,8 @@ export function listarEspacios(svg: string | null | undefined): Espacio[] {
   if (!svg) return [];
   let doc: any;
   try {
-    doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+    // onError vacío: un plano dañado solo produce una lista vacía, sin ruido en la consola.
+    doc = new DOMParser({ onError: () => {} } as any).parseFromString(svg, "image/svg+xml");
   } catch {
     return [];
   }

@@ -56,7 +56,7 @@
     var data;
     try {
       data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
-    } catch (e) {
+    } catch (_e) {
       return;
     }
     if (!data || typeof data !== "object") return;
@@ -444,7 +444,7 @@
           var prioridadPrevia = el.style.getPropertyPriority("display");
           el.style.setProperty("display", "inline", "important");
           var bbox;
-          try { bbox = el.getBBox(); } catch (e) { bbox = null; }
+          try { bbox = el.getBBox(); } catch (_e) { bbox = null; }
           if (displayPrevio) el.style.setProperty("display", displayPrevio, prioridadPrevia);
           else el.style.removeProperty("display");
           if (!bbox) return null;
@@ -597,7 +597,7 @@
           floorGroup.add(billboardSprite);
           interactiveObjects.push(billboardSprite);
           roomMesh.userData.billboard = billboardSprite;
-        } catch (e) {
+        } catch (_e) {
           // Un aula defectuosa no impide construir el resto del edificio.
         }
       });

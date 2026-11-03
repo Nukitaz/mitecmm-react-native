@@ -18,7 +18,7 @@ interface MapaWebViewProps {
 // Nota: react-native-webview 14 declara `WebView<P = undefined>` con props `WebViewProps & P`;
 // con P = undefined el tipo se reduce a never en TS 6, por eso se usa WebView<object>.
 export const MapaWebView = forwardRef<WebView<object>, MapaWebViewProps>(
-  ({ svgBaja, svgAlta, planta = "baja", targetSvgId, onAulaClick, isDarkMode }, ref) => {
+  function MapaWebView({ svgBaja, svgAlta, planta = "baja", targetSvgId, onAulaClick, isDarkMode }, ref) {
     const capaBajaRef = useRef<HTMLDivElement | null>(null);
     const capaAltaRef = useRef<HTMLDivElement | null>(null);
 

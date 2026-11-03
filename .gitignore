@@ -48,3 +48,6 @@ yarn-error.*
 # motor 3D generado por scripts/vendor-kiosk.mjs
 /public/vendor/
 /src/vendor/
+
+# build de las pruebas de navegador (npm run test:e2e)
+/test/.dist/

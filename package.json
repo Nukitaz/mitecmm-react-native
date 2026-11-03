@@ -24,11 +24,19 @@
   },
   "devDependencies": {
     "@types/react": "~19.3.0",
+    "eslint": "^9.0.0",
+    "eslint-config-expo": "~58.0.4",
     "gh-pages": "^6.3.0",
+    "globals": "14.0.0",
+    "puppeteer-core": "25.14.0",
     "typescript": "~6.0.3"
   },
   "scripts": {
     "vendor": "node scripts/vendor-kiosk.mjs",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./test/registro.mjs --test \"test/unit/*.test.mjs\"",
+    "test:e2e": "node test/e2e/ejecutar.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "expo lint",
     "postinstall": "node scripts/vendor-kiosk.mjs",
     "prestart": "npm run vendor",
     "start": "expo start",

@@ -517,7 +517,7 @@ const Mapa = () => {
           >
             <View style={styles.mapHeader}>
               <Text style={[styles.mapTag, !isDarkMode && styles.textLightSecondary]}>
-                // MAPA_GENERAL.SVG
+                {"// MAPA_GENERAL.SVG"}
               </Text>
               <View style={styles.liveTag}>
                 <View style={styles.liveDot} />

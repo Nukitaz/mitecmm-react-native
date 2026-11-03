@@ -26,7 +26,7 @@ type Suggestion = {
 };
 
 // Tarjeta memorizada con validación estricta de navegación
-const ProfesorCard = React.memo(({ prof }: { prof: HorarioDocente }) => {
+const ProfesorCard = React.memo(function ProfesorCard({ prof }: { prof: HorarioDocente }) {
   const { isDarkMode } = useTheme();
   const navigation = useNavigation<any>();
   const [isHovered, setIsHovered] = useState(false);

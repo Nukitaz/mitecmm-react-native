@@ -177,3 +177,7 @@
     esIdServicio: esIdServicio,
   };
 });
+
+// Nunca se ejecuta: solo declara los nombres exportados para que Node (pruebas en
+// test/unit) pueda importarlos por nombre desde módulos ES.
+0 && (exports.tipoServicio = exports.etiqueta = exports.nombreLegible = exports.esEspacio = exports.esIdServicio = 0);

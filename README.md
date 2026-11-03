@@ -8,7 +8,7 @@ Sistema de navegación interactivo y directorio docente para el Instituto Tecnol
 
 Antes de comenzar, asegúrate de tener instalado el siguiente software en la computadora de desarrollo:
 
-- **Node.js** (Versión 18.x o superior): [Descargar Node.js](https://nodejs.org/)
+- **Node.js** (Versión 22.18 o superior; recomendado 24 LTS): [Descargar Node.js](https://nodejs.org/)
 - **Git**: [Descargar Git](https://git-scm.com/)
 - **Java Development Kit (JDK 17)** (Requerido solo para compilaciones locales de Android): [Descargar JDK 17](https://www.oracle.com/java/technologies/downloads/#java17)
 - **Android Studio** (Opcional, necesario para emuladores y compilación local con Gradle): [Descargar Android Studio](https://developer.android.com/studio)
@@ -45,6 +45,40 @@ npx expo start --web
 ```bash
 npx expo start
 ```
+
+---
+
+## ✅ Pruebas
+
+```bash
+npm test            # pruebas unitarias (≈1 s): validación, sanitizador SVG, etiquetas, servicios
+npm run test:e2e    # pruebas en Chrome (≈10 min): seguridad, mapa 3D, errores, motor móvil
+npm run typecheck   # TypeScript
+npm run lint        # ESLint (configuración de Expo)
+```
+
+- Las pruebas usan una **copia fija de los planos reales** (`test/fixtures/planos`). Si se actualiza un plano en Supabase, cópialo ahí para que las pruebas lo cubran.
+- `test:e2e` compila el sitio con un **Supabase ficticio**: no consulta ni modifica la base real. Necesita Google Chrome instalado (o la variable `CHROME_PATH`).
+- Opciones: `npm run test:e2e -- --sin-compilar` reutiliza el último build; `npm run test:e2e -- mapa3d` ejecuta solo `test/e2e/mapa3d.test.cjs`.
+
+## 🧭 Mapa 3D: planos y modo quiosco
+
+**Reglas de los planos SVG (Inkscape):**
+- Cada espacio es un `<rect>` con ID en minúsculas, dígitos y `_` (p. ej. `aula_a5`, `laboratorio_de_redes_lr`). Los servicios (`sanitario_`, `escalera_`, `bodega_`…) pueden ser `path` o grupos.
+- Para poder **ver ambas plantas apiladas**, agrega en *cada* plano del edificio un rectángulo con ID `contorno_edificio` que cubra el contorno exterior, en la misma posición física en las dos plantas (puede estar oculto). Sin él, el botón no aparece.
+- El motor 3D se genera desde `src/components/mapa3d/runtime/`; después de editar esos archivos ejecuta `npm run vendor`.
+
+**Modo quiosco** (pantallas fijas en el campus):
+
+```
+/mapa/a?kiosco=1&aqui=entrada_principal&inactividad=90
+```
+
+| Parámetro | Efecto |
+|---|---|
+| `kiosco=1` | Activa el modo quiosco |
+| `aqui` | ID del elemento del plano donde se muestra "Usted está aquí" |
+| `inactividad` | Segundos sin uso para volver a la vista inicial (15–600, por defecto 90) |
 
 ### Generar APK Android desde la nube
 

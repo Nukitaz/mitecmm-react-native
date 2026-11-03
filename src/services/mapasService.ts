@@ -34,8 +34,10 @@ export function getPlanoEdificioUrl(
 export type ErrorPlano = "no_existe" | "red" | "tiempo" | "invalido";
 
 export class PlanoError extends Error {
-  constructor(public motivo: ErrorPlano) {
+  readonly motivo: ErrorPlano;
+  constructor(motivo: ErrorPlano) {
     super(motivo);
+    this.motivo = motivo;
   }
 }
 
