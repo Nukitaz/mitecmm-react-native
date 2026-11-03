@@ -86,6 +86,18 @@
 
   // ===================================================================
   function iniciar(cfg) {
+    /** Marca la escena como modificada y programa un cuadro. */
+    function pedirRender() {
+      necesitaRender = true;
+      programar();
+    }
+    function programar() {
+      if (!frameProgramado && !fallido) {
+        frameProgramado = true;
+        requestAnimationFrame(cuadro);
+      }
+    }
+
     if (typeof THREE === "undefined") {
       fallar("three");
       return;
@@ -124,26 +136,50 @@
       phi: Math.PI / 3.2,
     };
 
+    // Dibujo bajo demanda: solo se renderiza cuando algo cambia (cámara, selección,
+    // tamaño, pulso del aula seleccionada). Con la escena quieta: 0 cuadros.
+    var necesitaRender = true;
+    var frameProgramado = false;
+    var cuadrosDibujados = 0;
+
     function updateCameraPosition() {
       camera.position.x = cameraTarget.x + spherical.radius * Math.sin(spherical.phi) * Math.sin(spherical.theta);
       camera.position.y = cameraTarget.y + spherical.radius * Math.cos(spherical.phi);
       camera.position.z = cameraTarget.z + spherical.radius * Math.sin(spherical.phi) * Math.cos(spherical.theta);
       camera.lookAt(cameraTarget);
+      pedirRender();
     }
     updateCameraPosition();
 
-    // 3. Renderizador WebGL
+    // 3. Renderizador WebGL, con calidad ajustada al dispositivo
+    var dpr = window.devicePixelRatio || 1;
+    // Gama baja: pocos núcleos o poca memoria (deviceMemory solo existe en Chromium/Android).
+    var gamaBaja = (navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 3;
+    // Con densidad de píxeles >= 2 el antialias apenas se nota y cuesta mucho.
+    var usarAntialias = dpr < 2 && !gamaBaja;
+
+    /** Limita los píxeles dibujados (pantallas 4K de quiosco): máx. ~2560x1440 efectivos. */
+    function calcularPixelRatio(w, h) {
+      var pr = Math.min(dpr, gamaBaja ? 1.5 : 2);
+      var maxPixeles = gamaBaja ? 2.1e6 : 3.7e6;
+      while (pr > 1 && w * h * pr * pr > maxPixeles) pr -= 0.25;
+      return Math.max(1, pr);
+    }
+
     var renderer;
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+      renderer = new THREE.WebGLRenderer({ antialias: usarAntialias, alpha: false, powerPreference: gamaBaja ? "low-power" : "high-performance" });
     } catch (e) {
       fallar("webgl", e && e.message);
       return;
     }
+    renderer.setPixelRatio(calcularPixelRatio(width, height));
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = gamaBaja ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+    // Las sombras son estáticas (nada se mueve): se calculan una vez, no en cada cuadro.
+    renderer.shadowMap.autoUpdate = false;
+    renderer.shadowMap.needsUpdate = true;
     container.appendChild(renderer.domElement);
 
     // 4. Luces
@@ -153,8 +189,8 @@
     var sunLight = new THREE.DirectionalLight(0xffffff, isDark ? 1.0 : 1.3);
     sunLight.position.set(120, 220, 100);
     sunLight.castShadow = true;
-    sunLight.shadow.mapSize.width = 1024;
-    sunLight.shadow.mapSize.height = 1024;
+    sunLight.shadow.mapSize.width = gamaBaja ? 512 : 1024;
+    sunLight.shadow.mapSize.height = gamaBaja ? 512 : 1024;
     sunLight.shadow.camera.near = 10;
     sunLight.shadow.camera.far = 450;
     sunLight.shadow.camera.left = -120;
@@ -191,8 +227,19 @@
     var roomMeshes = {};
     var currentSelectedMesh = null;
 
-    // 6. Generadores de Billboards
+    // 6. Generadores de Billboards (texturas compartidas por contenido)
+    var cacheTexturas = {};
+    function texturaDe(clave, dibujar) {
+      if (cacheTexturas[clave]) return cacheTexturas[clave];
+      var texture = new THREE.CanvasTexture(dibujar());
+      texture.minFilter = THREE.LinearFilter;
+      texture.generateMipmaps = false;
+      cacheTexturas[clave] = texture;
+      return texture;
+    }
+
     function createClassroomBillboard(shortCode, category) {
+      var texture = texturaDe("aula|" + category + "|" + shortCode, function () {
       var canvas = document.createElement("canvas");
       canvas.width = 256;
       canvas.height = 128;
@@ -218,10 +265,8 @@
       ctx.fillStyle = "#0f172a";
       ctx.font = "bold 46px -apple-system, BlinkMacSystemFont, sans-serif";
       ctx.fillText(shortCode, 128, 92);
-
-      var texture = new THREE.CanvasTexture(canvas);
-      texture.minFilter = THREE.LinearFilter;
-      texture.generateMipmaps = false;
+      return canvas;
+      });
 
       var mat = new THREE.SpriteMaterial({ map: texture, depthTest: true });
       var sprite = new THREE.Sprite(mat);
@@ -230,6 +275,7 @@
     }
 
     function createServiceBillboard(serviceType) {
+      var texture = texturaDe("servicio|" + serviceType, function () {
       var canvas = document.createElement("canvas");
       canvas.width = 160;
       canvas.height = 160;
@@ -301,10 +347,8 @@
         ctx.fillRect(66, 68, 26, 56);
         ctx.fillRect(92, 40, 26, 84);
       }
-
-      var texture = new THREE.CanvasTexture(canvas);
-      texture.minFilter = THREE.LinearFilter;
-      texture.generateMipmaps = false;
+      return canvas;
+      });
 
       var mat = new THREE.SpriteMaterial({ map: texture, depthTest: true });
       var sprite = new THREE.Sprite(mat);
@@ -519,6 +563,9 @@
 
       // C. Aulas extruidas y billboards
       var roomExtrudeHeight = 6.0;
+      // Una sola caja unitaria y su contorno para TODAS las aulas (se escalan por aula).
+      var cajaUnitaria = new THREE.BoxGeometry(1, 1, 1);
+      var contornoUnitario = new THREE.EdgesGeometry(cajaUnitaria);
 
       rawRooms.forEach(function (room) {
         try {
@@ -536,8 +583,8 @@
             materials.roomWall,
           ];
 
-          var roomGeo = new THREE.BoxGeometry(boxW, roomExtrudeHeight, boxD);
-          var roomMesh = new THREE.Mesh(roomGeo, defaultMat);
+          var roomMesh = new THREE.Mesh(cajaUnitaria, defaultMat);
+          roomMesh.scale.set(boxW, roomExtrudeHeight, boxD);
           roomMesh.position.set(worldX, roomExtrudeHeight / 2, worldZ);
           // SVG (x, y hacia abajo) -> mundo (x, z): una rotación θ del plano equivale a rotation.y = -θ
           roomMesh.rotation.y = -room.angle;
@@ -545,8 +592,10 @@
           roomMesh.receiveShadow = true;
           roomMesh.userData = { id: room.id, name: room.id, defaultMaterial: defaultMat, isRoom: true };
 
-          var edgesGeo = new THREE.EdgesGeometry(roomGeo);
-          var edgeLines = new THREE.LineSegments(edgesGeo, materials.edge);
+          var edgeLines = new THREE.LineSegments(contornoUnitario, materials.edge);
+          // El contorno es decorativo: no participa en la selección (escalado, su umbral
+          // de raycast crecería con el aula y "taparía" los clics).
+          edgeLines.raycast = function () {};
           roomMesh.add(edgeLines);
 
           floorGroup.add(roomMesh);
@@ -574,6 +623,9 @@
           // Un aula defectuosa no impide construir el resto del edificio.
         }
       });
+
+      renderer.shadowMap.needsUpdate = true;
+      pedirRender();
 
       if (loader) {
         loader.style.opacity = "0";
@@ -619,6 +671,7 @@
         currentSelectedMesh.material = currentSelectedMesh.userData.defaultMaterial;
       }
       currentSelectedMesh = null;
+      pedirRender();
     }
 
     /** notificar=false cuando la selección viene de la app (evita el ciclo app -> motor -> app). */
@@ -637,6 +690,7 @@
       if (animateCamera !== false) {
         targetCameraLerp = new THREE.Vector3(targetMesh.position.x, 0, targetMesh.position.z);
       }
+      pedirRender();
 
       if (notificar !== false) {
         sendToHost({ type: "AULA_CLICK", id: targetMesh.userData.id, name: targetMesh.userData.name });
@@ -653,11 +707,13 @@
       raycaster.setFromCamera(mouse, camera);
       var intersects = raycaster.intersectObjects(interactiveObjects, true);
 
-      if (intersects.length > 0) {
-        var hit = intersects[0].object;
+      // Primer impacto que corresponda a un aula (o a su etiqueta).
+      for (var i = 0; i < intersects.length; i++) {
+        var hit = intersects[i].object;
         var targetMesh = hit.userData.roomMesh || (hit.userData.isRoom ? hit : null);
         if (targetMesh && targetMesh.userData && targetMesh.userData.id) {
           selectRoomById(targetMesh.userData.id, true, true);
+          return;
         }
       }
     }
@@ -806,7 +862,9 @@
       height = h;
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
+      renderer.setPixelRatio(calcularPixelRatio(w, h));
       renderer.setSize(w, h);
+      pedirRender();
     });
 
     // Selección inicial (misma lógica de búsqueda que las selecciones posteriores)
@@ -824,6 +882,18 @@
       },
       aulas: function () {
         return Object.keys(roomMeshes);
+      },
+      /** Métricas de rendimiento y memoria gráfica. */
+      info: function () {
+        return {
+          cuadros: cuadrosDibujados,
+          geometrias: renderer.info.memory.geometries,
+          texturas: renderer.info.memory.textures,
+          pixelRatio: renderer.getPixelRatio(),
+          antialias: usarAntialias,
+          gamaBaja: gamaBaja,
+          sombrasPorCuadro: renderer.shadowMap.autoUpdate,
+        };
       },
       /** Posición en pantalla (px del iframe) del centro superior de un aula. */
       pantalla: function (id) {
@@ -856,28 +926,63 @@
       contextoPerdido = false;
       avisoContexto.hidden = true;
       if (temporizadorContexto) clearTimeout(temporizadorContexto);
+      renderer.shadowMap.needsUpdate = true;
+      pedirRender();
     });
 
-    // 10. Bucle de Renderizado
-    function animate() {
-      if (fallido) return;
-      requestAnimationFrame(animate);
-      if (contextoPerdido) return;
+    // Al cerrar o reemplazar la escena se libera la memoria gráfica de inmediato
+    // (sin esperar al recolector), importante en móviles y quioscos encendidos todo el día.
+    window.addEventListener("pagehide", function () {
+      scene.traverse(function (obj) {
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) {
+          (Array.isArray(obj.material) ? obj.material : [obj.material]).forEach(function (m) {
+            if (m.map) m.map.dispose();
+            m.dispose();
+          });
+        }
+      });
+      Object.keys(cacheTexturas).forEach(function (k) { cacheTexturas[k].dispose(); });
+      renderer.dispose();
+      renderer.forceContextLoss();
+    });
 
-      if (currentSelectedMesh) {
-        materials.roomSelected.emissiveIntensity = 0.45 + 0.25 * Math.sin(Date.now() * 0.006);
-      }
+    // 10. Bucle de Renderizado bajo demanda
+    var INTERVALO_PULSO_MS = 50; // pulso del aula seleccionada a ~20 cuadros/s
+    var ultimoPulso = 0;
+
+    function cuadro() {
+      frameProgramado = false;
+      if (fallido || contextoPerdido || !renderer) return;
+      var continuar = false;
 
       if (targetCameraLerp) {
         cameraTarget.lerp(targetCameraLerp, 0.07);
         updateCameraPosition();
         if (cameraTarget.distanceTo(targetCameraLerp) < 0.15) {
           targetCameraLerp = null;
+        } else {
+          continuar = true;
         }
       }
 
-      renderer.render(scene, camera);
+      if (currentSelectedMesh) {
+        var ahora = performance.now();
+        if (ahora - ultimoPulso >= INTERVALO_PULSO_MS) {
+          ultimoPulso = ahora;
+          materials.roomSelected.emissiveIntensity = 0.45 + 0.25 * Math.sin(ahora * 0.006);
+          necesitaRender = true;
+        }
+        continuar = true;
+      }
+
+      if (necesitaRender) {
+        necesitaRender = false;
+        renderer.render(scene, camera);
+        cuadrosDibujados++;
+      }
+      if (continuar) programar();
     }
-    animate();
+    pedirRender();
   }
 })();
