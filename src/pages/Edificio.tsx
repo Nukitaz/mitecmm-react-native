@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Platform } from "react-native";
 import { Navbar } from "../components/Navbar";
 import { EdificioHeader } from "../components/edificio/EdificioHeader";
 import { FloorSelector } from "../components/edificio/FloorSelector";
 import { MapaWebView } from "../components/edificio/MapaWebView";
+import { Mapa3DView } from "../components/mapa3d/Mapa3DView";
 import { getPlanoEdificioUrl } from "../services/mapasService";
 import { AULAS_UBICACIONES } from "./Mapa";
 import { useTheme } from "../context/ThemeContext";
+import { Box, Layers } from "lucide-react-native";
 
 const formatearNombreEdificio = (id: string, nombreOriginal?: string) => {
   if (
@@ -50,6 +52,7 @@ const Edificio = ({ route }: any) => {
 
   const webViewRef = useRef<any>(null);
 
+  const [modoVista, setModoVista] = useState<"2d" | "3d">("3d");
   const [aulaResaltada, setAulaResaltada] = useState<string | null>(
     route?.params?.aulaResaltada || null
   );
@@ -89,7 +92,7 @@ const Edificio = ({ route }: any) => {
 
   const targetSvgId = useMemo(() => {
     if (!aulaResaltada) return null;
-    const claveUpper = aulaResaltada.toUpperCase();
+    const claveUpper = aulaResaltada.toUpperCase().trim();
     const ubicacion = AULAS_UBICACIONES[claveUpper];
 
     if (ubicacion?.svgId) {
@@ -97,6 +100,21 @@ const Edificio = ({ route }: any) => {
     }
 
     const limpia = aulaResaltada.toLowerCase().trim();
+    if (
+      limpia.startsWith("aula_") ||
+      limpia.startsWith("edificio_") ||
+      limpia.startsWith("laboratorio_") ||
+      limpia.startsWith("consultorio_") ||
+      limpia.startsWith("sala_") ||
+      limpia.startsWith("area_") ||
+      limpia.startsWith("almacen_") ||
+      limpia.startsWith("jefatura_") ||
+      limpia.startsWith("servicio_") ||
+      limpia.startsWith("paqueteria_") ||
+      limpia.startsWith("centro_")
+    ) {
+      return limpia;
+    }
     return `aula_${limpia}`;
   }, [aulaResaltada]);
 
@@ -117,15 +135,61 @@ const Edificio = ({ route }: any) => {
     [svgAlta]
   );
 
+  const currentSvgFor3D = planta === "baja" ? svgBaja : svgAlta;
+
   return (
     <View style={[styles.screen, !isDarkMode && styles.screenLight]}>
       <Navbar />
       <View style={styles.main}>
-        <EdificioHeader
-          edificioId={edificioId}
-          nombreEdificio={nombreEdificio}
-          isDarkMode={isDarkMode}
-        />
+        <View style={styles.headerRow}>
+          <EdificioHeader
+            edificioId={edificioId}
+            nombreEdificio={nombreEdificio}
+            isDarkMode={isDarkMode}
+          />
+          {/* Selector de Modo 2D / 3D */}
+          <View style={[styles.modeToggleContainer, !isDarkMode && styles.modeToggleContainerLight]}>
+            <TouchableOpacity
+              style={[
+                styles.modeBtn,
+                modoVista === "2d" && (isDarkMode ? styles.modeBtnActiveDark : styles.modeBtnActiveLight),
+              ]}
+              onPress={() => setModoVista("2d")}
+              activeOpacity={0.7}
+            >
+              <Layers size={14} color={modoVista === "2d" ? (isDarkMode ? "#ffffff" : "#0f172a") : (isDarkMode ? "#71717a" : "#64748b")} />
+              <Text
+                style={[
+                  styles.modeBtnText,
+                  !isDarkMode && styles.modeBtnTextLight,
+                  modoVista === "2d" && (isDarkMode ? styles.modeBtnTextActiveDark : styles.modeBtnTextActiveLight),
+                ]}
+              >
+                2D Plano
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.modeBtn,
+                modoVista === "3d" && (isDarkMode ? styles.modeBtnActiveDark : styles.modeBtnActiveLight),
+              ]}
+              onPress={() => setModoVista("3d")}
+              activeOpacity={0.7}
+            >
+              <Box size={14} color={modoVista === "3d" ? (isDarkMode ? "#ffffff" : "#0f172a") : (isDarkMode ? "#71717a" : "#64748b")} />
+              <Text
+                style={[
+                  styles.modeBtnText,
+                  !isDarkMode && styles.modeBtnTextLight,
+                  modoVista === "3d" && (isDarkMode ? styles.modeBtnTextActiveDark : styles.modeBtnTextActiveLight),
+                ]}
+              >
+                3D Quiosco
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
 
         {aulaResaltada && (
           <View
@@ -157,15 +221,26 @@ const Edificio = ({ route }: any) => {
               ]}
             >
               <View style={styles.mapWrapper}>
-                <MapaWebView
-                  ref={webViewRef}
-                  svgBaja={processedBaja}
-                  svgAlta={processedAlta}
-                  planta={planta}
-                  targetSvgId={targetSvgId}
-                  onAulaClick={(id) => setAulaResaltada(id.toUpperCase())}
-                  isDarkMode={isDarkMode}
-                />
+                {modoVista === "3d" ? (
+                  <Mapa3DView
+                    svgXml={currentSvgFor3D}
+                    edificioId={edificioId}
+                    planta={planta}
+                    selectedRoomId={targetSvgId}
+                    isDarkMode={isDarkMode}
+                    onRoomClick={(id) => setAulaResaltada(id.toUpperCase())}
+                  />
+                ) : (
+                  <MapaWebView
+                    ref={webViewRef}
+                    svgBaja={processedBaja}
+                    svgAlta={processedAlta}
+                    planta={planta}
+                    targetSvgId={targetSvgId}
+                    onAulaClick={(id) => setAulaResaltada(id.toUpperCase())}
+                    isDarkMode={isDarkMode}
+                  />
+                )}
               </View>
             </View>
           </View>
@@ -187,6 +262,64 @@ const styles = StyleSheet.create({
     width: "100%",
     alignSelf: "center",
   },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  modeToggleContainer: {
+    flexDirection: "row",
+    backgroundColor: "#18181b",
+    borderRadius: 8,
+    padding: 3,
+    borderWidth: 1,
+    borderColor: "#27272a",
+  },
+  modeToggleContainerLight: {
+    backgroundColor: "#f1f5f9",
+    borderColor: "#e2e8f0",
+  },
+  modeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  modeBtnActiveDark: {
+    backgroundColor: "#27272a",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  modeBtnActiveLight: {
+    backgroundColor: "#ffffff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  modeBtnText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#71717a",
+  },
+  modeBtnTextLight: {
+    color: "#64748b",
+  },
+  modeBtnTextActiveDark: {
+    color: "#ffffff",
+  },
+  modeBtnTextActiveLight: {
+    color: "#0f172a",
+  },
   resaltadoBanner: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -205,13 +338,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#0d0d10",
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: "#27272a", // Borde visible en oscuro
+    borderColor: "#27272a",
     overflow: "hidden",
   },
   mapCardLight: {
     backgroundColor: "#ffffff",
-    borderColor: "#e2e8f0", // Borde sutil visible en claro
-    borderWidth: 1, // Restaura explícitamente el borde que se había perdido
+    borderColor: "#e2e8f0",
+    borderWidth: 1,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -220,16 +353,16 @@ const styles = StyleSheet.create({
   },
   mapContent: { flex: 1, flexDirection: "row" },
   
-  /* ÁREA ESPECÍFICA DONDE SE DIBUJA EL SVG */
+  /* ÁREA ESPECÍFICA DONDE SE DIBUJA EL SVG / 3D */
   imageContainer: { 
     flex: 1, 
     backgroundColor: "#08080a", 
-    padding: 6 
+    padding: 0,
   },
   imageContainerLight: { 
-    backgroundColor: "#ffffff" // Asegura fondo blanco uniforme con mapCard
+    backgroundColor: "#f1f4f8",
   },
   mapWrapper: { width: "100%", height: "100%", position: "relative" },
 });
 
-export default Edificio;
+export default Edificio;
