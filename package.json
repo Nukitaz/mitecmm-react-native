@@ -19,7 +19,8 @@
     "react-native-screens": "~4.26.0",
     "react-native-svg": "15.15.4",
     "react-native-web": "^0.21.2",
-    "react-native-webview": "13.16.1"
+    "react-native-webview": "13.16.1",
+    "three": "0.148.0"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
@@ -27,11 +28,17 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
+    "vendor": "node scripts/vendor-kiosk.mjs",
+    "postinstall": "node scripts/vendor-kiosk.mjs",
+    "prestart": "npm run vendor",
     "start": "expo start",
+    "preandroid": "npm run vendor",
     "android": "expo run:android",
+    "preios": "npm run vendor",
     "ios": "expo run:ios",
+    "preweb": "npm run vendor",
     "web": "expo start --web",
-    "predeploy": "npx expo export -p web && cp dist/index.html dist/404.html",
+    "predeploy": "npm run vendor && npx expo export -p web && node scripts/post-export.mjs",
     "deploy": "gh-pages -d dist"
   },
   "private": true

@@ -1,9 +1,9 @@
-import React, { useMemo, useRef, useEffect } from "react";
+import React, { useRef, useEffect, useCallback } from "react";
 import { View, StyleSheet, Platform, StyleProp, ViewStyle, ActivityIndicator, Text } from "react-native";
 import { WebView } from "react-native-webview";
-import { generateKioskHtml } from "./kioskEngine";
 import { PROPS_WEBVIEW_SEGURO } from "../../constants/webviewSeguro";
 import { esIdSvgValido } from "../../utils/sanitize";
+import { KIOSK_HTML_NATIVE, KIOSK_VERSION } from "../../vendor/kioskBundle";
 
 interface Mapa3DViewProps {
   svgXml: string | null | undefined;
@@ -15,6 +15,9 @@ interface Mapa3DViewProps {
   style?: StyleProp<ViewStyle>;
 }
 
+/** Página estática del motor 3D servida desde el propio dominio (sin CDN). */
+const KIOSK_WEB_URL = `${process.env.EXPO_BASE_URL ?? ""}/vendor/kiosk.html?v=${KIOSK_VERSION}`;
+
 export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
   svgXml,
   edificioId,
@@ -25,70 +28,67 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
   style,
 }) => {
   const webViewRef = useRef<WebView>(null);
-  const iframeRef = useRef<any>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
-  // El HTML del quiosco solo se regenera si cambia el plano SVG o el tema (Dark/Light).
-  // NO depende de selectedRoomId para evitar recargar el iframe / WebGL al seleccionar aulas.
-  const htmlContent = useMemo(() => {
-    if (!svgXml) return "";
-    return generateKioskHtml({
-      svgContent: svgXml,
-      isDarkMode,
-      selectedRoomId,
-    });
-  }, [svgXml, isDarkMode]);
+  // Valores actuales para responder al saludo del motor sin recrear listeners.
+  const actual = useRef({ svgXml, isDarkMode, selectedRoomId, onRoomClick });
+  actual.current = { svgXml, isDarkMode, selectedRoomId, onRoomClick };
 
-  // Comunicación fluida para resaltar sin recargas: envía mensaje al iframe o WebView
-  useEffect(() => {
-    if (!selectedRoomId) return;
-
-    const payload = JSON.stringify({ type: "SELECT_ROOM", id: selectedRoomId });
-
+  /** Envía un mensaje al motor 3D (iframe en web, WebView en móvil). */
+  const enviar = useCallback((data: object) => {
+    const payload = JSON.stringify(data);
     if (Platform.OS === "web") {
-      try {
-        iframeRef.current?.contentWindow?.postMessage(payload, "*");
-      } catch {
-        // En caso de que el iframe aún no esté listo
-      }
+      // El iframe es sandbox (origen opaco): "*" es obligatorio; el motor valida event.source.
+      iframeRef.current?.contentWindow?.postMessage(payload, "*");
     } else {
+      webViewRef.current?.postMessage(payload);
+    }
+  }, []);
+
+  /** Procesa los mensajes que llegan del motor 3D. */
+  const procesarMensaje = useCallback(
+    (raw: unknown) => {
+      let data: any;
       try {
-        webViewRef.current?.postMessage(payload);
+        data = typeof raw === "string" ? JSON.parse(raw) : raw;
       } catch {
-        // En caso de que el webview aún no esté listo
+        return;
       }
-    }
-  }, [selectedRoomId]);
+      if (!data || typeof data !== "object") return;
 
-  const handleMessage = (event: any) => {
-    try {
-      const data = JSON.parse(event.nativeEvent?.data || event.data);
-      if (data?.type === "AULA_CLICK" && esIdSvgValido(String(data.id).toLowerCase()) && onRoomClick) {
-        onRoomClick(data.id);
+      if (data.type === "KIOSK_LOADED") {
+        const { svgXml: svg, isDarkMode: dark, selectedRoomId: sel } = actual.current;
+        if (!svg) return;
+        enviar({
+          type: "INIT",
+          svg,
+          isDark: dark,
+          selectedId: esIdSvgValido(sel) ? sel : "",
+        });
+      } else if (data.type === "AULA_CLICK") {
+        const id = String(data.id ?? "");
+        if (esIdSvgValido(id.toLowerCase())) actual.current.onRoomClick?.(id);
       }
-    } catch {
-      // Ignorar mensajes no formateados en JSON
-    }
-  };
+    },
+    [enviar]
+  );
 
+  // Web: solo se aceptan mensajes que provienen del iframe del quiosco.
   useEffect(() => {
     if (Platform.OS !== "web" || typeof window === "undefined") return;
-
-    const handleWebMessage = (event: MessageEvent) => {
-      // Solo se aceptan mensajes del iframe del quiosco (sandbox => origen "null").
+    const handler = (event: MessageEvent) => {
       if (!iframeRef.current || event.source !== iframeRef.current.contentWindow) return;
-      try {
-        const data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
-        if (data?.type === "AULA_CLICK" && esIdSvgValido(String(data.id).toLowerCase()) && onRoomClick) {
-          onRoomClick(data.id);
-        }
-      } catch {
-        // Ignorar mensajes no compatibles
-      }
+      procesarMensaje(event.data);
     };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [procesarMensaje]);
 
-    window.addEventListener("message", handleWebMessage);
-    return () => window.removeEventListener("message", handleWebMessage);
-  }, [onRoomClick]);
+  // Resaltado sin recargar (el motor lo atenderá a partir del Bloque 5).
+  useEffect(() => {
+    if (!selectedRoomId || !esIdSvgValido(selectedRoomId)) return;
+    enviar({ type: "SELECT_ROOM", id: selectedRoomId });
+  }, [selectedRoomId, enviar]);
 
   if (!svgXml) {
     return (
@@ -101,41 +101,38 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
     );
   }
 
-  // Render para Web (usando iframe con srcDoc para aislamiento y máxima aceleración WebGL)
+  // Cambiar de edificio, planta, plano o tema reconstruye la escena desde cero.
+  const claveEscena = `${edificioId}-${planta}-${isDarkMode ? "d" : "l"}-${svgXml.length}`;
+  const fondo = isDarkMode ? "#08080a" : "#f1f4f8";
+
   if (Platform.OS === "web") {
     return (
       <View style={[styles.container, style]}>
         <iframe
+          key={claveEscena}
           ref={iframeRef}
-          srcDoc={htmlContent}
+          src={`${KIOSK_WEB_URL}#${isDarkMode ? "dark" : "light"}`}
           title="Mapa 3D del edificio"
-          // Sin allow-same-origin: el contenido del plano no puede acceder
-          // al origen de la app (sesión, almacenamiento, DOM del padre).
+          // Sin allow-same-origin: el motor no puede acceder al origen de la app.
           sandbox="allow-scripts"
           referrerPolicy="no-referrer"
-          style={{
-            width: "100%",
-            height: "100%",
-            border: "none",
-            backgroundColor: isDarkMode ? "#08080a" : "#f1f4f8",
-          }}
+          style={{ width: "100%", height: "100%", border: "none", backgroundColor: fondo }}
         />
       </View>
     );
   }
 
-  // Render para Móvil (Android / iOS con WebView)
+  if (!KIOSK_HTML_NATIVE) return null;
+
   return (
     <View style={[styles.container, style]}>
       <WebView
+        key={claveEscena}
         ref={webViewRef}
         {...PROPS_WEBVIEW_SEGURO}
-        source={{ html: htmlContent }}
-        style={[
-          styles.webview,
-          { backgroundColor: isDarkMode ? "#08080a" : "#f1f4f8" },
-        ]}
-        onMessage={handleMessage}
+        source={{ html: KIOSK_HTML_NATIVE.replace("<body>", `<body class="${isDarkMode ? "dark" : "light"}">`) }}
+        style={[styles.webview, { backgroundColor: fondo }]}
+        onMessage={(event) => procesarMensaje(event.nativeEvent.data)}
         javaScriptEnabled={true}
         domStorageEnabled={false}
         scalesPageToFit={false}

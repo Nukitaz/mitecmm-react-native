@@ -44,3 +44,7 @@ yarn-error.*
 .env
 .env.*
 !.env.example
+
+# motor 3D generado por scripts/vendor-kiosk.mjs
+/public/vendor/
+/src/vendor/
