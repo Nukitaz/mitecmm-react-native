@@ -14,6 +14,16 @@ interface Mapa3DViewProps {
   onRoomClick?: (roomId: string) => void;
   /** El 3D no puede mostrarse en este dispositivo/plano: la pantalla debe volver al 2D. */
   onError?: (motivo: MotivoError3D) => void;
+  /** El motor quitó el resaltado (tecla Escape o inactividad en modo quiosco). */
+  onSeleccionLimpiada?: () => void;
+  /** Plano de la otra planta: permite apilarlas si ambos tienen "contorno_edificio". */
+  svgSecundario?: string | null;
+  /** ID del elemento donde se coloca "Usted está aquí" (modo quiosco). */
+  aqui?: string | null;
+  /** Modo quiosco: ms sin uso para volver a la vista inicial (0 = desactivado). */
+  inactividadMs?: number;
+  /** Nombre del edificio (descripción accesible del mapa). */
+  titulo?: string;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -34,6 +44,11 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
   isDarkMode,
   onRoomClick,
   onError,
+  onSeleccionLimpiada,
+  svgSecundario,
+  aqui,
+  inactividadMs = 0,
+  titulo,
   style,
 }) => {
   // Nota: react-native-webview 14 declara `WebView<P = undefined>` con props `WebViewProps & P`;
@@ -42,8 +57,8 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   // Valores actuales para responder al saludo del motor sin recrear listeners.
-  const actual = useRef({ svgXml, isDarkMode, selectedRoomId, onRoomClick, onError });
-  actual.current = { svgXml, isDarkMode, selectedRoomId, onRoomClick, onError };
+  const actual = useRef({ svgXml, isDarkMode, selectedRoomId, onRoomClick, onError, onSeleccionLimpiada, svgSecundario, aqui, inactividadMs, titulo, planta });
+  actual.current = { svgXml, isDarkMode, selectedRoomId, onRoomClick, onError, onSeleccionLimpiada, svgSecundario, aqui, inactividadMs, titulo, planta };
   const escenaLista = useRef(false);
   const errorReportado = useRef(false);
 
@@ -76,14 +91,21 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
       if (!data || typeof data !== "object") return;
 
       if (data.type === "KIOSK_LOADED") {
-        const { svgXml: svg, isDarkMode: dark, selectedRoomId: sel } = actual.current;
-        if (!svg) return;
+        const a = actual.current;
+        if (!a.svgXml) return;
         enviar({
           type: "INIT",
-          svg,
-          isDark: dark,
-          selectedId: esIdSvgValido(sel) ? sel : "",
+          svg: a.svgXml,
+          isDark: a.isDarkMode,
+          selectedId: esIdSvgValido(a.selectedRoomId) ? a.selectedRoomId : "",
+          svgSecundario: a.svgSecundario || "",
+          plantaActiva: a.planta,
+          aqui: esIdSvgValido(a.aqui) ? a.aqui : "",
+          inactividadMs: a.inactividadMs || 0,
+          titulo: a.titulo || "",
         });
+      } else if (data.type === "SELECCION_LIMPIADA") {
+        actual.current.onSeleccionLimpiada?.();
       } else if (data.type === "KIOSK_READY") {
         escenaLista.current = true;
       } else if (data.type === "KIOSK_ERROR") {
@@ -157,7 +179,7 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
           key={claveEscena}
           ref={iframeRef}
           src={`${KIOSK_WEB_URL}#${isDarkMode ? "dark" : "light"}`}
-          title="Mapa 3D del edificio"
+          title={titulo ? `Mapa 3D del ${titulo}` : "Mapa 3D del edificio"}
           // Sin allow-same-origin: el motor no puede acceder al origen de la app.
           sandbox="allow-scripts"
           referrerPolicy="no-referrer"

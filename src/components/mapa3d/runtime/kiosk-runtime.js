@@ -62,14 +62,24 @@
     if (!data || typeof data !== "object") return;
     if (data.type === "INIT" && !iniciado && typeof data.svg === "string") {
       iniciado = true;
+      var inactividad = Number(data.inactividadMs);
       iniciar({
         svg: data.svg,
         isDark: data.isDark === true,
         selectedId: typeof data.selectedId === "string" && ID_VALIDO.test(data.selectedId) ? data.selectedId : "",
+        // Otra planta del edificio (para apilarlas) y si es la superior.
+        svgSecundario: typeof data.svgSecundario === "string" ? data.svgSecundario : "",
+        secundariaEsSuperior: data.plantaActiva !== "alta",
+        // "Usted está aquí": ID de un elemento del plano (validado).
+        aqui: typeof data.aqui === "string" && ID_VALIDO.test(data.aqui) ? data.aqui : "",
+        // Modo quiosco: volver a la vista inicial tras X ms sin uso (0 = desactivado).
+        inactividadMs: inactividad >= 5000 && inactividad <= 3600000 ? inactividad : 0,
+        titulo: typeof data.titulo === "string" ? data.titulo.slice(0, 80) : "",
       });
     } else if (data.type === "SELECT_ROOM" && motor && typeof data.id === "string" && ID_VALIDO.test(data.id)) {
       // Selección pedida por la app: no se notifica de vuelta (evita ciclos).
       motor.seleccionar(data.id);
+      motor.actividad();
     } else if (data.type === "CLEAR_SELECTION" && motor) {
       motor.limpiar();
     }
@@ -113,6 +123,8 @@
     var edgeColor = isDark ? "#1e293b" : "#64748b";
 
     var selectedTargetId = cfg.selectedId;
+    // Preferencia del sistema "reducir movimiento": sin pulsos ni desplazamientos animados.
+    var movimientoReducido = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 
     var container = document.getElementById("canvas-container");
     var loader = document.getElementById("loader");
@@ -383,132 +395,126 @@
     // Etiquetas y tipos de servicio: fuente única compartida con la app (etiquetas.js).
     var Etiquetas = window.MiTecmmEtiquetas;
 
-    // 7. Parseo del SVG y Construcción del Edificio
-    function buildFloorFromSvg(svgText) {
-      if (!svgText) {
-        fallar("sin_aulas");
-        return;
-      }
+    // 7. Medición de un plano SVG (planta activa y, si se apilan, la otra planta)
+    var ALTURA_AULA = 6.0;
+    // Una sola caja unitaria y su contorno para TODAS las aulas (se escalan por aula).
+    var cajaUnitaria = new THREE.BoxGeometry(1, 1, 1);
+    var contornoUnitario = new THREE.EdgesGeometry(cajaUnitaria);
+    var planoActivo = null;
+    var normalizacion = null; // { cx, cy, scale }: coordenadas del SVG -> mundo 3D
 
-      var sandbox = document.getElementById("svg-parser-sandbox");
+    /**
+     * Interpreta y mide un plano: espacios (centro, tamaño y rotación reales vía getCTM),
+     * límites, y el contorno de referencia "contorno_edificio" si existe.
+     */
+    function medirPlano(svgText, sandbox) {
+      if (!svgText) return null;
       // El SVG llega saneado desde la app; además se interpreta con DOMParser
       // (no ejecuta scripts) antes de insertarlo para poder medirlo con getBBox.
       var parsed = new DOMParser().parseFromString(svgText, "image/svg+xml");
       var svgRoot = parsed.documentElement;
-      if (!svgRoot || svgRoot.nodeName.toLowerCase() !== "svg" || parsed.getElementsByTagName("parsererror").length) {
-        fallar("sin_aulas");
-        return;
-      }
+      if (!svgRoot || svgRoot.nodeName.toLowerCase() !== "svg" || parsed.getElementsByTagName("parsererror").length) return null;
       sandbox.textContent = "";
       sandbox.appendChild(document.importNode(svgRoot, true));
       var svgEl = sandbox.querySelector("svg");
-      if (!svgEl) return;
+      if (!svgEl) return null;
 
-      // IDs auto-generados por Inkscape/SVG que NO son espacios reales (ej: rect1234, path56)
-      var autoIdRe = /^(rect|path|circle|ellipse|polygon|polyline|line|g|use|image|text|tspan|defs|symbol|marker|pattern|mask|filter|clipPath|linearGradient|radialGradient|stop|namedview|page|layer|metadata|desc|title)\d+$/i;
-
-      // Prefijos de IDs que identifican elementos de servicio en formas NO-rect
-      var SERVICE_PREFIXES = [
-        "sanitario_", "bano_", "wc_",
-        "escalera_",
-        "bodega_", "almacen_", "deposito_", "cuarto_",
-        "servicio_", "servicios_",
-        "paqueteria_", "vigilancia_", "seguridad_",
-        "consultorio_", "medico_", "enfermeria_",
-        "mantenimiento_", "carga_", "tableros_",
-        "subestacion_", "cisterna_",
-      ];
-
-      function isServiceId(id) {
-        if (!id) return false;
-        var lower = id.toLowerCase();
-        for (var si = 0; si < SERVICE_PREFIXES.length; si++) {
-          if (lower.indexOf(SERVICE_PREFIXES[si]) === 0) return true;
-        }
-        return false;
-      }
-
-      var seenIds = {};
-      var rawRooms = [];
-      var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-
-      // Matriz del sistema de coordenadas raíz del SVG: todas las aulas se expresan
-      // en ese espacio, respetando los transform de capas/grupos (Inkscape).
+      // Matriz del sistema de coordenadas raíz del SVG: todo se expresa en ese espacio,
+      // respetando los transform de capas/grupos (Inkscape).
       var rootCtm = svgEl.getCTM();
       var rootInv = rootCtm ? rootCtm.inverse() : null;
-
-      function matrizDe(el) {
-        var ctm = el.getCTM();
-        if (!ctm || !rootInv) return null;
-        return rootInv.multiply(ctm);
-      }
 
       function transformar(m, x, y) {
         if (!m) return { x: x, y: y };
         return { x: m.a * x + m.c * y + m.e, y: m.b * x + m.d * y + m.f };
       }
 
-      /** Agrega un aula a partir de su caja local (x, y, w, h) y la matriz del elemento. */
-      function addRoom(id, el, x, y, w, h) {
-        if (seenIds[id]) return;
-        var m = matrizDe(el);
+      /** Caja real de un elemento en coordenadas raíz: centro, tamaño, ángulo y esquinas. */
+      function cajaDe(el) {
+        var x, y, w, h;
+        if (el.tagName.toLowerCase() === "rect") {
+          x = parseFloat(el.getAttribute("x")) || 0;
+          y = parseFloat(el.getAttribute("y")) || 0;
+          w = parseFloat(el.getAttribute("width")) || 0;
+          h = parseFloat(el.getAttribute("height")) || 0;
+        } else {
+          // Los espacios suelen estar ocultos (display:none) y getBBox() de un elemento
+          // oculto mide 0: se muestra solo mientras se mide (el sandbox es invisible).
+          var displayPrevio = el.style.getPropertyValue("display");
+          var prioridadPrevia = el.style.getPropertyPriority("display");
+          el.style.setProperty("display", "inline", "important");
+          var bbox;
+          try { bbox = el.getBBox(); } catch (e) { bbox = null; }
+          if (displayPrevio) el.style.setProperty("display", displayPrevio, prioridadPrevia);
+          else el.style.removeProperty("display");
+          if (!bbox) return null;
+          x = bbox.x; y = bbox.y; w = bbox.width; h = bbox.height;
+        }
+        var ctm = el.getCTM();
+        var m = ctm && rootInv ? rootInv.multiply(ctm) : null;
         var sx = m ? Math.hypot(m.a, m.b) : 1;
         var sy = m ? Math.hypot(m.c, m.d) : 1;
-        var ancho = w * sx, alto = h * sy;
-        if (ancho <= 2 || alto <= 2) return;
-        seenIds[id] = true;
-
         var centro = transformar(m, x + w / 2, y + h / 2);
-        var angulo = m ? Math.atan2(m.b, m.a) : 0;
-        rawRooms.push({ id: id, cx: centro.x, cy: centro.y, w: ancho, h: alto, angle: angulo });
-
-        [[x, y], [x + w, y], [x, y + h], [x + w, y + h]].forEach(function (c) {
-          var p = transformar(m, c[0], c[1]);
-          minX = Math.min(minX, p.x);
-          maxX = Math.max(maxX, p.x);
-          minY = Math.min(minY, p.y);
-          maxY = Math.max(maxY, p.y);
-        });
+        return {
+          cx: centro.x,
+          cy: centro.y,
+          w: w * sx,
+          h: h * sy,
+          angle: m ? Math.atan2(m.b, m.a) : 0,
+          esquinas: [[x, y], [x + w, y], [x, y + h], [x + w, y + h]].map(function (c) { return transformar(m, c[0], c[1]); }),
+        };
       }
 
-      // PASO 1: <rect id="...">
-      var rectElements = svgEl.querySelectorAll("rect[id]");
-      rectElements.forEach(function (rect) {
-        var id = rect.getAttribute("id");
-        if (!id || autoIdRe.test(id)) return;
+      function limitesDe(cajas) {
+        var l = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
+        cajas.forEach(function (c) {
+          c.esquinas.forEach(function (p) {
+            l.minX = Math.min(l.minX, p.x); l.maxX = Math.max(l.maxX, p.x);
+            l.minY = Math.min(l.minY, p.y); l.maxY = Math.max(l.maxY, p.y);
+          });
+        });
+        return l;
+      }
 
-        var x = parseFloat(rect.getAttribute("x")) || 0;
-        var y = parseFloat(rect.getAttribute("y")) || 0;
-        var w = parseFloat(rect.getAttribute("width")) || 0;
-        var h = parseFloat(rect.getAttribute("height")) || 0;
-        addRoom(id, rect, x, y, w, h);
-      });
-
-      // PASO 2: formas NO-rect con prefijo de servicio
-      var nonRectSelector = ["path[id]", "polygon[id]", "polyline[id]", "circle[id]", "ellipse[id]", "g[id]"].join(", ");
-
-      svgEl.querySelectorAll(nonRectSelector).forEach(function (el) {
+      var vistos = {};
+      var rooms = [];
+      var cajas = [];
+      svgEl.querySelectorAll("[id]").forEach(function (el) {
         var id = el.getAttribute("id");
-        if (!isServiceId(id)) return;
-        if (seenIds[id]) return;
-
-        // Los espacios suelen estar ocultos (display:none) en el plano y getBBox() de un
-        // elemento oculto mide 0: se muestra solo mientras se mide (el sandbox es invisible).
-        var displayPrevio = el.style.getPropertyValue("display");
-        var prioridadPrevia = el.style.getPropertyPriority("display");
-        el.style.setProperty("display", "inline", "important");
-        var bbox;
-        try { bbox = el.getBBox(); } catch (e) { bbox = null; }
-        if (displayPrevio) el.style.setProperty("display", displayPrevio, prioridadPrevia);
-        else el.style.removeProperty("display");
-        if (!bbox) return;
-        addRoom(id, el, bbox.x, bbox.y, bbox.width, bbox.height);
+        if (vistos[id] || !Etiquetas.esEspacio(el.tagName, id)) return;
+        var caja = cajaDe(el);
+        if (!caja || caja.w <= 2 || caja.h <= 2) return;
+        vistos[id] = true;
+        rooms.push({ id: id, cx: caja.cx, cy: caja.cy, w: caja.w, h: caja.h, angle: caja.angle });
+        cajas.push(caja);
       });
 
-      if (rawRooms.length === 0) {
+      var contornoEl = svgEl.querySelector('[id="contorno_edificio"]');
+      var contornoCaja = contornoEl ? cajaDe(contornoEl) : null;
+
+      return {
+        rooms: rooms,
+        limites: limitesDe(cajas),
+        contorno: contornoCaja && contornoCaja.w > 2 && contornoCaja.h > 2 ? limitesDe([contornoCaja]) : null,
+        /** Caja de cualquier elemento por ID (para "Usted está aquí"). */
+        cajaPorId: function (id) {
+          if (!ID_VALIDO.test(id)) return null;
+          var el = svgEl.querySelector('[id="' + id + '"]');
+          return el ? cajaDe(el) : null;
+        },
+      };
+    }
+
+    function buildFloorFromSvg(svgText) {
+      var plano = medirPlano(svgText, document.getElementById("svg-parser-sandbox"));
+      if (!plano || plano.rooms.length === 0) {
         fallar("sin_aulas");
         return;
       }
+      planoActivo = plano;
+      var rawRooms = plano.rooms;
+      var minX = plano.limites.minX, maxX = plano.limites.maxX;
+      var minY = plano.limites.minY, maxY = plano.limites.maxY;
 
       var buildingW = maxX - minX;
       var buildingD = maxY - minY;
@@ -517,6 +523,7 @@
 
       var targetSceneSize = 110;
       var scale = targetSceneSize / Math.max(buildingW, buildingD);
+      normalizacion = { cx: buildingCenterX, cy: buildingCenterY, scale: scale };
 
       var floorW = buildingW * scale + 18;
       var floorD = buildingD * scale + 18;
@@ -537,10 +544,7 @@
       floorGroup.add(corridorMesh);
 
       // C. Aulas extruidas y billboards
-      var roomExtrudeHeight = 6.0;
-      // Una sola caja unitaria y su contorno para TODAS las aulas (se escalan por aula).
-      var cajaUnitaria = new THREE.BoxGeometry(1, 1, 1);
-      var contornoUnitario = new THREE.EdgesGeometry(cajaUnitaria);
+      var roomExtrudeHeight = ALTURA_AULA;
 
       rawRooms.forEach(function (room) {
         try {
@@ -606,9 +610,15 @@
         setTimeout(function () { loader.style.display = "none"; }, 400);
       }
 
+      var apilable = cfg.svgSecundario ? construirPlantaFantasma(cfg.svgSecundario, cfg.secundariaEsSuperior) : false;
+      var aquiEncontrado = colocarUstedEstaAqui(cfg.aqui);
+      if (apilable) document.getElementById("btn-plantas").hidden = false;
+
       sendToHost({
         type: "KIOSK_READY",
         totalRooms: rawRooms.length,
+        plantasApilables: apilable,
+        aquiEncontrado: aquiEncontrado,
         // Centros en coordenadas del SVG: permiten verificar que el 3D coincide con el 2D.
         rooms: rawRooms.map(function (r) {
           return { id: r.id, cx: Math.round(r.cx * 10) / 10, cy: Math.round(r.cy * 10) / 10 };
@@ -622,6 +632,110 @@
       fallar("construccion", err && err.message);
     }
     if (fallido) return;
+
+    // 7b. Otra planta apilada (semitransparente). Los planos de cada planta tienen su
+    // propio sistema de coordenadas: solo se alinean si AMBOS incluyen el rectángulo de
+    // referencia "contorno_edificio" con el contorno del edificio. Sin él, no se ofrece.
+    // Sin "= null": se asigna durante buildFloorFromSvg, que se ejecuta antes de esta línea.
+    var grupoFantasma;
+
+    function construirPlantaFantasma(svgTexto, esSuperior) {
+      if (!planoActivo || !planoActivo.contorno || !normalizacion) return false;
+      var otro = medirPlano(svgTexto, document.getElementById("svg-parser-sandbox-2"));
+      if (!otro || !otro.contorno || !otro.rooms.length) return false;
+      var a = planoActivo.contorno, b = otro.contorno;
+      var kx = (a.maxX - a.minX) / (b.maxX - b.minX);
+      var ky = (a.maxY - a.minY) / (b.maxY - b.minY);
+      var n = normalizacion;
+
+      var color = isDark ? 0xa78bfa : 0x7c3aed;
+      var matLinea = new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: 0.6, depthTest: false });
+      var matCaja = new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 0.1, depthWrite: false, depthTest: false });
+      var alturaPiso = esSuperior ? ALTURA_AULA + 6 : -ALTURA_AULA - 4;
+      var alto = 4;
+
+      grupoFantasma = new THREE.Group();
+      otro.rooms.forEach(function (r) {
+        // Coordenadas de la otra planta -> coordenadas de la planta activa (por el contorno)
+        var x = a.minX + (r.cx - b.minX) * kx;
+        var y = a.minY + (r.cy - b.minY) * ky;
+        var caja = new THREE.Mesh(cajaUnitaria, matCaja);
+        caja.scale.set(r.w * kx * n.scale, alto, r.h * ky * n.scale);
+        caja.position.set((x - n.cx) * n.scale, alturaPiso + alto / 2, (y - n.cy) * n.scale);
+        caja.rotation.y = -r.angle;
+        caja.renderOrder = 10;
+        caja.raycast = function () {};
+        var lineas = new THREE.LineSegments(contornoUnitario, matLinea);
+        lineas.renderOrder = 11;
+        lineas.raycast = function () {};
+        caja.add(lineas);
+        grupoFantasma.add(caja);
+      });
+      grupoFantasma.visible = false;
+      scene.add(grupoFantasma);
+      return true;
+    }
+
+    function alternarPlantas(mostrar) {
+      if (!grupoFantasma) return;
+      grupoFantasma.visible = typeof mostrar === "boolean" ? mostrar : !grupoFantasma.visible;
+      var btn = document.getElementById("btn-plantas");
+      btn.setAttribute("aria-pressed", grupoFantasma.visible ? "true" : "false");
+      btn.setAttribute("aria-label", grupoFantasma.visible ? "Ocultar la otra planta" : "Ver ambas plantas");
+      pedirRender();
+    }
+
+    // 7c. "Usted está aquí": pin, anillo y etiqueta sobre un elemento del plano.
+    var anilloAqui; // idem: se asigna durante la construcción
+
+    function colocarUstedEstaAqui(id) {
+      if (!id || !planoActivo || !normalizacion) return false;
+      var caja = planoActivo.cajaPorId(id);
+      if (!caja) return false;
+      var n = normalizacion;
+      var x = (caja.cx - n.cx) * n.scale, z = (caja.cy - n.cy) * n.scale;
+      var base = roomMeshes[id.toLowerCase()] ? ALTURA_AULA : 0.1;
+      var verde = 0x10b981;
+
+      var grupo = new THREE.Group();
+      var poste = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 9, 12), new THREE.MeshStandardMaterial({ color: verde }));
+      poste.position.set(0, 4.5, 0);
+      var cabeza = new THREE.Mesh(new THREE.SphereGeometry(1.4, 20, 14), new THREE.MeshStandardMaterial({ color: verde, emissive: verde, emissiveIntensity: 0.4 }));
+      cabeza.position.set(0, 9.5, 0);
+      anilloAqui = new THREE.Mesh(
+        new THREE.RingGeometry(1.6, 2.4, 40),
+        new THREE.MeshBasicMaterial({ color: verde, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false })
+      );
+      anilloAqui.rotation.x = -Math.PI / 2;
+      anilloAqui.position.set(0, 0.15, 0);
+      [poste, cabeza, anilloAqui].forEach(function (o) { o.raycast = function () {}; grupo.add(o); });
+
+      var textura = texturaDe("aqui", function () {
+        var canvas = document.createElement("canvas");
+        canvas.width = 320;
+        canvas.height = 80;
+        var ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#10b981";
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(4, 4, 312, 72, 36); else ctx.rect(4, 4, 312, 72);
+        ctx.fill();
+        ctx.fillStyle = "#ffffff";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(fuenteQueCabe(ctx, "USTED ESTÁ AQUÍ", 34, 18, 280), 160, 42);
+        return canvas;
+      });
+      var etiquetaAqui = new THREE.Sprite(new THREE.SpriteMaterial({ map: textura, depthTest: false }));
+      etiquetaAqui.scale.set(14, 3.5, 1);
+      etiquetaAqui.position.set(0, 13.5, 0);
+      etiquetaAqui.renderOrder = 20;
+      etiquetaAqui.raycast = function () {};
+      grupo.add(etiquetaAqui);
+
+      grupo.position.set(x, base, z);
+      scene.add(grupo);
+      return true;
+    }
 
     // 8. Raycasting para Selección por Toque o Clic
     var raycaster = new THREE.Raycaster();
@@ -662,7 +776,7 @@
       currentSelectedMesh.material = materials.roomSelected;
 
       if (animateCamera !== false) {
-        targetCameraLerp = new THREE.Vector3(targetMesh.position.x, 0, targetMesh.position.z);
+        moverCamaraA(new THREE.Vector3(targetMesh.position.x, 0, targetMesh.position.z));
       }
       pedirRender();
 
@@ -699,7 +813,12 @@
     var pointerDownPos = { x: 0, y: 0 };
     var initialPinchDistance = null;
 
+    function enControles(e) {
+      return !!(e.target && e.target.closest && e.target.closest("#controles"));
+    }
+
     window.addEventListener("mousedown", function (e) {
+      if (enControles(e)) return;
       isDragging = true;
       dragMode = e.button === 2 || e.shiftKey ? "rotate" : "pan";
       previousMousePosition = { x: e.clientX, y: e.clientY };
@@ -751,6 +870,7 @@
 
     // Eventos Multi-Touch
     window.addEventListener("touchstart", function (e) {
+      if (enControles(e)) return;
       if (e.touches.length === 1) {
         isDragging = true;
         dragMode = "pan";
@@ -841,12 +961,107 @@
       pedirRender();
     });
 
+    // 9c. Controles de cámara (botones, teclado) y modo quiosco
+    function moverCamaraA(destino) {
+      if (movimientoReducido) {
+        cameraTarget.copy(destino);
+        targetCameraLerp = null;
+        updateCameraPosition();
+      } else {
+        targetCameraLerp = destino;
+        pedirRender();
+      }
+    }
+
+    function vistaInicial() {
+      spherical.radius = 170;
+      spherical.theta = Math.PI / 4;
+      spherical.phi = Math.PI / 3.2;
+      moverCamaraA(new THREE.Vector3(0, 0, 0));
+      updateCameraPosition();
+    }
+
+    function acercar(factor) {
+      spherical.radius = Math.max(45, Math.min(320, spherical.radius * factor));
+      updateCameraPosition();
+    }
+
+    function desplazar(dx, dz) {
+      var forward = new THREE.Vector3(-Math.sin(spherical.theta), 0, -Math.cos(spherical.theta));
+      var right = new THREE.Vector3(Math.cos(spherical.theta), 0, -Math.sin(spherical.theta));
+      var paso = spherical.radius * 0.06;
+      cameraTarget.addScaledVector(right, dx * paso);
+      cameraTarget.addScaledVector(forward, dz * paso);
+      targetCameraLerp = null;
+      updateCameraPosition();
+    }
+
+    function rotar(angulo) {
+      spherical.theta += angulo;
+      updateCameraPosition();
+    }
+
+    // Inactividad (modo quiosco): limpia la selección y vuelve a la vista inicial.
+    var temporizadorInactividad = null;
+    function registrarActividad() {
+      if (!cfg.inactividadMs) return;
+      if (temporizadorInactividad) clearTimeout(temporizadorInactividad);
+      temporizadorInactividad = setTimeout(alQuedarInactivo, cfg.inactividadMs);
+    }
+    function alQuedarInactivo() {
+      var habiaSeleccion = !!currentSelectedMesh;
+      limpiarSeleccion();
+      alternarPlantas(false);
+      vistaInicial();
+      if (habiaSeleccion) sendToHost({ type: "SELECCION_LIMPIADA", motivo: "inactividad" });
+    }
+    ["mousedown", "touchstart", "wheel", "keydown"].forEach(function (ev) {
+      window.addEventListener(ev, registrarActividad, { passive: true });
+    });
+    registrarActividad();
+
+    function enlazarBoton(id, accion) {
+      var btn = document.getElementById(id);
+      if (btn) btn.addEventListener("click", function (e) { e.stopPropagation(); accion(); });
+    }
+    enlazarBoton("btn-acercar", function () { acercar(0.8); });
+    enlazarBoton("btn-alejar", function () { acercar(1.25); });
+    enlazarBoton("btn-inicio", vistaInicial);
+    enlazarBoton("btn-plantas", function () { alternarPlantas(); });
+
+    // Teclado: flechas mueven, +/- acercan, Q/E giran, Inicio/R vista inicial, Esc quita la selección.
+    window.addEventListener("keydown", function (e) {
+      if (e.target && e.target.tagName === "BUTTON" && (e.key === "Enter" || e.key === " ")) return;
+      var k = e.key;
+      var manejada = true;
+      if (k === "ArrowLeft") desplazar(-1, 0);
+      else if (k === "ArrowRight") desplazar(1, 0);
+      else if (k === "ArrowUp") desplazar(0, 1);
+      else if (k === "ArrowDown") desplazar(0, -1);
+      else if (k === "+" || k === "=") acercar(0.8);
+      else if (k === "-" || k === "_") acercar(1.25);
+      else if (k === "q" || k === "Q") rotar(0.15);
+      else if (k === "e" || k === "E") rotar(-0.15);
+      else if (k === "Home" || k === "r" || k === "R") vistaInicial();
+      else if (k === "Escape" && currentSelectedMesh) {
+        limpiarSeleccion();
+        sendToHost({ type: "SELECCION_LIMPIADA", motivo: "teclado" });
+      } else manejada = false;
+      if (manejada) e.preventDefault();
+    });
+
+    // Descripción accesible del lienzo
+    container.setAttribute("aria-label",
+      "Mapa 3D" + (cfg.titulo ? " del " + cfg.titulo : "") +
+      ". Flechas para mover, más y menos para acercar, Q y E para girar, Inicio para la vista inicial y Escape para quitar el resaltado.");
+
     // Selección inicial (misma lógica de búsqueda que las selecciones posteriores)
     if (selectedTargetId) selectRoomById(selectedTargetId, true, false);
 
     motor = {
       seleccionar: function (id) { selectRoomById(id, true, false); },
       limpiar: limpiarSeleccion,
+      actividad: registrarActividad,
     };
 
     // Diagnóstico de solo lectura (pruebas automáticas y depuración en DevTools).
@@ -867,6 +1082,19 @@
           antialias: usarAntialias,
           gamaBaja: gamaBaja,
           sombrasPorCuadro: renderer.shadowMap.autoUpdate,
+          plantasApiladasVisibles: !!(grupoFantasma && grupoFantasma.visible),
+          aqui: !!anilloAqui,
+          movimientoReducido: movimientoReducido,
+          radio: Math.round(spherical.radius),
+          objetivo: [Math.round(cameraTarget.x * 10) / 10, Math.round(cameraTarget.z * 10) / 10],
+        };
+      },
+      /** Posiciones (x, z) en el mundo de las aulas activas y de la planta apilada. */
+      posiciones: function () {
+        var r = function (v) { return Math.round(v * 10) / 10; };
+        return {
+          aulas: Object.keys(roomMeshes).map(function (k) { return [r(roomMeshes[k].position.x), r(roomMeshes[k].position.z)]; }),
+          fantasma: grupoFantasma ? grupoFantasma.children.map(function (c) { return [r(c.position.x), r(c.position.z)]; }) : null,
         };
       },
       /** Posición en pantalla (px del iframe) del centro superior de un aula. */
@@ -940,14 +1168,21 @@
         }
       }
 
-      if (currentSelectedMesh) {
+      if ((currentSelectedMesh || anilloAqui) && !movimientoReducido) {
         var ahora = performance.now();
         if (ahora - ultimoPulso >= INTERVALO_PULSO_MS) {
           ultimoPulso = ahora;
-          materials.roomSelected.emissiveIntensity = 0.45 + 0.25 * Math.sin(ahora * 0.006);
+          if (currentSelectedMesh) materials.roomSelected.emissiveIntensity = 0.45 + 0.25 * Math.sin(ahora * 0.006);
+          if (anilloAqui) {
+            var fase = (ahora % 1800) / 1800;
+            anilloAqui.scale.setScalar(1 + fase * 1.6);
+            anilloAqui.material.opacity = 0.75 * (1 - fase);
+          }
           necesitaRender = true;
         }
         continuar = true;
+      } else if (currentSelectedMesh) {
+        materials.roomSelected.emissiveIntensity = 0.6;
       }
 
       if (necesitaRender) {

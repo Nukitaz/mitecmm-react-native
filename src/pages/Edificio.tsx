@@ -15,6 +15,8 @@ import {
 } from "../services/mapasService";
 import { log } from "../utils/log";
 import { nombreLegible } from "../components/mapa3d/runtime/etiquetas";
+import { ListaEspacios } from "../components/edificio/ListaEspacios";
+import { listarEspacios } from "../utils/espacios";
 import { AULAS_UBICACIONES } from "./Mapa";
 import { useTheme } from "../context/ThemeContext";
 import { esIdSvgValido, normalizarAulaParam } from "../utils/sanitize";
@@ -81,6 +83,16 @@ const Edificio = ({ route }: any) => {
     route?.params?.nombre
   );
   const plantaInicial: "baja" | "alta" = route?.params?.plantaInicial === "alta" ? "alta" : "baja";
+
+  // Modo quiosco (pantallas fijas en el campus):
+  //   /mapa/a?kiosco=1&aqui=entrada_principal&inactividad=90
+  // - aqui: ID de un elemento del plano donde se marca "Usted está aquí"
+  // - inactividad: segundos sin uso para volver a la vista inicial (15–600, por defecto 90)
+  const modoKiosco = route?.params?.kiosco === "1" || route?.params?.kiosco === 1;
+  const aquiParam = String(route?.params?.aqui ?? "").toLowerCase().trim();
+  const aqui = esIdSvgValido(aquiParam) ? aquiParam : null;
+  const segundosInactividad = Math.min(600, Math.max(15, Number(route?.params?.inactividad) || 90));
+  const inactividadMs = modoKiosco ? segundosInactividad * 1000 : 0;
 
 
   const [modoVista, setModoVista] = useState<"2d" | "3d">("3d");
@@ -192,6 +204,8 @@ const Edificio = ({ route }: any) => {
   );
 
   const currentSvgFor3D = planta === "baja" ? svgBaja : svgAlta;
+  const svgOtraPlanta = planta === "baja" ? svgAlta : svgBaja;
+  const espacios = useMemo(() => listarEspacios(currentSvgFor3D), [currentSvgFor3D]);
   const estadoActual = planta === "baja" ? plantaBaja : plantaAlta;
 
   return (
@@ -254,10 +268,10 @@ const Edificio = ({ route }: any) => {
         {aviso3D && (
           <View
             style={[styles.avisoBanner, !isDarkMode && styles.avisoBannerLight]}
-            accessibilityRole="alert"
+            role="alert"
           >
             <Text style={[styles.avisoText, !isDarkMode && styles.avisoTextLight]}>{aviso3D}</Text>
-            <TouchableOpacity onPress={() => setAviso3D(null)} accessibilityLabel="Cerrar aviso">
+            <TouchableOpacity onPress={() => setAviso3D(null)} role="button" aria-label="Cerrar aviso">
               <Text style={styles.quitarText}>cerrar</Text>
             </TouchableOpacity>
           </View>
@@ -312,6 +326,11 @@ const Edificio = ({ route }: any) => {
                     isDarkMode={isDarkMode}
                     onRoomClick={(id) => setAulaResaltada(normalizarAulaParam(id)?.toUpperCase() ?? null)}
                     onError={alFallar3D}
+                    onSeleccionLimpiada={() => setAulaResaltada(null)}
+                    svgSecundario={svgOtraPlanta}
+                    aqui={aqui}
+                    inactividadMs={inactividadMs}
+                    titulo={nombreEdificio}
                   />
                 ) : (
                   <MapaWebView
@@ -327,6 +346,13 @@ const Edificio = ({ route }: any) => {
             </View>
           </View>
         </View>
+
+        <ListaEspacios
+          espacios={espacios}
+          seleccionado={targetSvgId}
+          isDarkMode={isDarkMode}
+          onSeleccionar={(id) => setAulaResaltada(normalizarAulaParam(id)?.toUpperCase() ?? null)}
+        />
       </View>
     </View>
   );

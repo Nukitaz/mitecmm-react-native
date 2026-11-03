@@ -9,3 +9,9 @@ export function etiqueta(id: string): { categoria: string; codigo: string };
 
 /** Nombre legible para personas: "Aula A3", "Laboratorio de redes (LR)". */
 export function nombreLegible(id: string): string;
+
+/** ¿El elemento SVG (nombre de etiqueta + ID) es un espacio del edificio? */
+export function esEspacio(etiquetaSvg: string, id: string): boolean;
+
+/** ¿El ID tiene prefijo de espacio de servicio (sanitario_, escalera_…)? */
+export function esIdServicio(id: string): boolean;

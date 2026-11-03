@@ -15,11 +15,11 @@ export const EstadoPlano: React.FC<EstadoPlanoProps> = ({ tipo, mensaje, detalle
   const colorDetalle = isDarkMode ? "#a1a1aa" : "#64748b";
 
   return (
-    <View style={styles.contenedor} accessibilityRole={tipo === "error" ? "alert" : "progressbar"}>
+    <View style={styles.contenedor} role={tipo === "error" ? "alert" : "progressbar"} aria-busy={tipo === "cargando"}>
       {tipo === "cargando" ? (
         <ActivityIndicator size="large" color="#a855f7" />
       ) : (
-        <Text style={styles.icono} accessibilityElementsHidden importantForAccessibility="no">
+        <Text style={styles.icono} aria-hidden>
           ⚠
         </Text>
       )}
@@ -29,8 +29,8 @@ export const EstadoPlano: React.FC<EstadoPlanoProps> = ({ tipo, mensaje, detalle
         <TouchableOpacity
           onPress={onReintentar}
           style={styles.boton}
-          accessibilityRole="button"
-          accessibilityLabel="Reintentar"
+          role="button"
+          aria-label="Reintentar"
         >
           <Text style={styles.botonTexto}>Reintentar</Text>
         </TouchableOpacity>

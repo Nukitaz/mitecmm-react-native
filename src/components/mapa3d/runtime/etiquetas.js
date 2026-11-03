@@ -132,5 +132,48 @@
     return texto;
   }
 
-  return { tipoServicio: tipoServicio, etiqueta: etiqueta, nombreLegible: nombreLegible };
+  // ---------------------------------------------------------------------------
+  // Qué elementos del plano son "espacios" (misma regla en el motor 3D y en la app)
+
+  /** IDs automáticos de Inkscape/SVG que NO son espacios (rect1234, path56, g12…). */
+  var ID_AUTOMATICO = /^(rect|path|circle|ellipse|polygon|polyline|line|g|use|image|text|tspan|defs|symbol|marker|pattern|mask|filter|clippath|lineargradient|radialgradient|stop|namedview|page|layer|metadata|desc|title)[\d-]*$/i;
+
+  /** IDs con significado especial que no se dibujan como espacios. */
+  var IDS_RESERVADOS = { contorno_edificio: true };
+
+  /** Prefijos de espacios de servicio que pueden dibujarse como path/g (no solo rect). */
+  var PREFIJOS_SERVICIO = [
+    "sanitario_", "bano_", "wc_", "escalera_", "bodega_", "almacen_", "deposito_", "cuarto_",
+    "servicio_", "servicios_", "paqueteria_", "vigilancia_", "seguridad_", "consultorio_",
+    "medico_", "enfermeria_", "mantenimiento_", "carga_", "tableros_", "subestacion_", "cisterna_",
+  ];
+
+  function esIdServicio(id) {
+    var t = String(id || "").toLowerCase();
+    for (var i = 0; i < PREFIJOS_SERVICIO.length; i++) {
+      if (t.indexOf(PREFIJOS_SERVICIO[i]) === 0) return true;
+    }
+    return false;
+  }
+
+  /**
+   * ¿El elemento (por etiqueta e ID) representa un espacio del edificio?
+   * - <rect> con ID propio (no automático ni reservado)
+   * - path/polygon/polyline/circle/ellipse/g con prefijo de servicio
+   */
+  function esEspacio(etiquetaSvg, id) {
+    if (!id || ID_AUTOMATICO.test(id) || IDS_RESERVADOS[String(id).toLowerCase()]) return false;
+    var tag = String(etiquetaSvg || "").toLowerCase().replace(/^svg:/, "");
+    if (tag === "rect") return true;
+    if (/^(path|polygon|polyline|circle|ellipse|g)$/.test(tag)) return esIdServicio(id);
+    return false;
+  }
+
+  return {
+    tipoServicio: tipoServicio,
+    etiqueta: etiqueta,
+    nombreLegible: nombreLegible,
+    esEspacio: esEspacio,
+    esIdServicio: esIdServicio,
+  };
 });
