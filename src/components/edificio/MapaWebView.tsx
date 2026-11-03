@@ -4,6 +4,7 @@ import { WebView } from "react-native-webview";
 import { getInjectedJavaScript } from "../../constants/scriptInject";
 import { esIdSvgValido } from "../../utils/sanitize";
 import { PROPS_WEBVIEW_SEGURO } from "../../constants/webviewSeguro";
+import { log } from "../../utils/log";
 
 interface MapaWebViewProps {
   svgBaja: string | null | undefined;
@@ -36,7 +37,7 @@ export const MapaWebView = forwardRef<WebView, MapaWebViewProps>(
       });
     }, [targetSvgId, planta, svgBaja, svgAlta, isDarkMode]);
 
-    if (!svgBaja) return null;
+    if (!svgBaja && !svgAlta) return null;
 
     const bgColor = isDarkMode ? "#08080a" : "#f8fafc";
     const textColor = isDarkMode ? "#ffffff" : "#0f172a";
@@ -237,7 +238,7 @@ export const MapaWebView = forwardRef<WebView, MapaWebViewProps>(
               onAulaClick(data.id);
             }
           } catch (e) {
-            console.error("Error WebView:", e);
+            log.error("Error WebView:", e);
           }
         }}
       />

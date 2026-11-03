@@ -1,4 +1,5 @@
 import { supabase } from "../integrations/supabase/client";
+import { log } from "../utils/log";
 
 export interface HorarioDocente {
   id: string;
@@ -47,7 +48,7 @@ export async function obtenerProfesores(busqueda: string = ""): Promise<HorarioD
 
     if (!q) {
       const { data, error } = await supabase.from("horarios_docentes").select(COLUMNAS);
-      if (error) console.error("Error al consultar horarios_docentes:", error.message);
+      if (error) log.error("Error al consultar horarios_docentes:", error.message);
       return (data || []).map(aHorario);
     }
 
@@ -67,13 +68,13 @@ export async function obtenerProfesores(busqueda: string = ""): Promise<HorarioD
       .or(`docente.ilike.%${q}%,materia.ilike.%${q}%,aula.ilike.%${q}%,grupo.ilike.%${q}%`);
 
     if (error) {
-      console.error("Error al consultar horarios_docentes:", error.message);
+      log.error("Error al consultar horarios_docentes:", error.message);
       return [];
     }
 
     return (data || []).map(aHorario);
   } catch (err) {
-    console.error("Error en servicio de profesores:", err);
+    log.error("Error en servicio de profesores:", err);
     return [];
   }
 }

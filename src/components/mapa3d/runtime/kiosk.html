@@ -86,6 +86,20 @@
       margin-bottom: 12px;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    #aviso-contexto {
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--badge-bg);
+      color: var(--badge-fg);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      z-index: 60;
+    }
+    #aviso-contexto[hidden] { display: none; }
   </style>
 </head>
 <body>

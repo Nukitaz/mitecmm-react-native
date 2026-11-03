@@ -12,8 +12,16 @@ interface Mapa3DViewProps {
   selectedRoomId?: string | null;
   isDarkMode: boolean;
   onRoomClick?: (roomId: string) => void;
+  /** El 3D no puede mostrarse en este dispositivo/plano: la pantalla debe volver al 2D. */
+  onError?: (motivo: MotivoError3D) => void;
   style?: StyleProp<ViewStyle>;
 }
+
+export type MotivoError3D = "three" | "webgl" | "sin_aulas" | "construccion" | "contexto" | "tiempo" | "no_disponible";
+
+/** Si el motor no confirma que la escena está lista en este tiempo, se considera fallido. */
+const TIEMPO_MAXIMO_3D_MS = 20000;
+const MOTIVOS_VALIDOS: MotivoError3D[] = ["three", "webgl", "sin_aulas", "construccion", "contexto"];
 
 /** Página estática del motor 3D servida desde el propio dominio (sin CDN). */
 const KIOSK_WEB_URL = `${process.env.EXPO_BASE_URL ?? ""}/vendor/kiosk.html?v=${KIOSK_VERSION}`;
@@ -25,14 +33,23 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
   selectedRoomId,
   isDarkMode,
   onRoomClick,
+  onError,
   style,
 }) => {
   const webViewRef = useRef<WebView>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   // Valores actuales para responder al saludo del motor sin recrear listeners.
-  const actual = useRef({ svgXml, isDarkMode, selectedRoomId, onRoomClick });
-  actual.current = { svgXml, isDarkMode, selectedRoomId, onRoomClick };
+  const actual = useRef({ svgXml, isDarkMode, selectedRoomId, onRoomClick, onError });
+  actual.current = { svgXml, isDarkMode, selectedRoomId, onRoomClick, onError };
+  const escenaLista = useRef(false);
+  const errorReportado = useRef(false);
+
+  const reportarError = useCallback((motivo: MotivoError3D) => {
+    if (errorReportado.current) return;
+    errorReportado.current = true;
+    actual.current.onError?.(motivo);
+  }, []);
 
   /** Envía un mensaje al motor 3D (iframe en web, WebView en móvil). */
   const enviar = useCallback((data: object) => {
@@ -65,12 +82,17 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
           isDark: dark,
           selectedId: esIdSvgValido(sel) ? sel : "",
         });
+      } else if (data.type === "KIOSK_READY") {
+        escenaLista.current = true;
+      } else if (data.type === "KIOSK_ERROR") {
+        const motivo = MOTIVOS_VALIDOS.includes(data.motivo) ? data.motivo : "construccion";
+        reportarError(motivo);
       } else if (data.type === "AULA_CLICK") {
         const id = String(data.id ?? "");
         if (esIdSvgValido(id.toLowerCase())) actual.current.onRoomClick?.(id);
       }
     },
-    [enviar]
+    [enviar, reportarError]
   );
 
   // Web: solo se aceptan mensajes que provienen del iframe del quiosco.
@@ -95,6 +117,23 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
     }
   }, [selectedRoomId, enviar]);
 
+  // Tiempo máximo: si el motor no llega a KIOSK_READY (iframe bloqueado, script que no
+  // carga, dispositivo muy lento) se informa el error en lugar de un loader infinito.
+  const claveEscena = svgXml ? `${edificioId}-${planta}-${isDarkMode ? "d" : "l"}-${svgXml.length}` : "";
+  useEffect(() => {
+    if (!claveEscena) return;
+    escenaLista.current = false;
+    errorReportado.current = false;
+    if (Platform.OS !== "web" && !KIOSK_HTML_NATIVE) {
+      reportarError("no_disponible");
+      return;
+    }
+    const t = setTimeout(() => {
+      if (!escenaLista.current) reportarError("tiempo");
+    }, TIEMPO_MAXIMO_3D_MS);
+    return () => clearTimeout(t);
+  }, [claveEscena, reportarError]);
+
   if (!svgXml) {
     return (
       <View style={[styles.loadingContainer, style]}>
@@ -106,8 +145,7 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
     );
   }
 
-  // Cambiar de edificio, planta, plano o tema reconstruye la escena desde cero.
-  const claveEscena = `${edificioId}-${planta}-${isDarkMode ? "d" : "l"}-${svgXml.length}`;
+  // Cambiar de edificio, planta, plano o tema (claveEscena) reconstruye la escena desde cero.
   const fondo = isDarkMode ? "#08080a" : "#f1f4f8";
 
   if (Platform.OS === "web") {

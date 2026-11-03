@@ -14,6 +14,7 @@ import { obtenerProfesores, HorarioDocente } from "../services/profesoresService
 import { AULAS_UBICACIONES } from "./Mapa";
 import { useNavigation } from "@react-navigation/native";
 import { useTheme } from "../context/ThemeContext";
+import { log } from "../utils/log";
 
 type Suggestion = {
   id: string;
@@ -217,7 +218,7 @@ const Profesores = ({ route }: any) => {
           setSugerencias([]);
         }
       } catch (err) {
-        console.error("Error al consultar profesores:", err);
+        log.error("Error al consultar profesores:", err);
       } finally {
         setIsLoading(false);
       }

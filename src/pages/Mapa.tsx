@@ -12,10 +12,17 @@ import { WebView } from "react-native-webview";
 import { useNavigation } from "@react-navigation/native";
 import { Search, User, Book, MapPin } from "lucide-react-native";
 import { Navbar } from "../components/Navbar";
-import { getMapaGeneralUrl } from "../services/mapasService";
+import {
+  getMapaGeneralUrl,
+  descargarPlanoSvg,
+  PlanoError,
+  ErrorPlano,
+  MENSAJES_ERROR_PLANO,
+} from "../services/mapasService";
+import { EstadoPlano } from "../components/common/EstadoPlano";
+import { log } from "../utils/log";
 import { obtenerProfesores } from "../services/profesoresService";
 import { useTheme } from "../context/ThemeContext";
-import { sanitizarSvg } from "../utils/svgSanitizer";
 import { PROPS_WEBVIEW_SEGURO } from "../constants/webviewSeguro";
 
 export const AULAS_UBICACIONES: Record<
@@ -225,18 +232,25 @@ const Mapa = () => {
   const [isFocused, setIsFocused] = useState(false);
   const [sugerencias, setSugerencias] = useState<Suggestion[]>([]);
 
+  const [errorMapa, setErrorMapa] = useState<ErrorPlano | null>(null);
+  const [intentoMapa, setIntentoMapa] = useState(0);
+
   useEffect(() => {
-    if (!mapaGeneralCache) {
-      fetch(mapaGeneralUrl)
-        .then((res) => res.text())
-        .then((text) => {
-          const limpio = sanitizarSvg(text);
-          mapaGeneralCache = limpio;
-          setSvgContent(limpio);
-        })
-        .catch((err) => console.error("Error al cargar el mapa general:", err));
-    }
-  }, [mapaGeneralUrl]);
+    if (mapaGeneralCache) return;
+    const control = new AbortController();
+    setErrorMapa(null);
+    descargarPlanoSvg(mapaGeneralUrl, control.signal)
+      .then((limpio) => {
+        mapaGeneralCache = limpio;
+        setSvgContent(limpio);
+      })
+      .catch((err) => {
+        if (control.signal.aborted) return;
+        log.error("Error al cargar el mapa general:", err);
+        setErrorMapa(err instanceof PlanoError ? err.motivo : "red");
+      });
+    return () => control.abort();
+  }, [mapaGeneralUrl, intentoMapa]);
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
@@ -307,7 +321,7 @@ const Mapa = () => {
           });
         });
       } catch (err) {
-        console.error("Error al consultar Supabase:", err);
+        log.error("Error al consultar Supabase:", err);
       }
 
       setSugerencias(nuevasSugerencias.slice(0, 6));
@@ -620,15 +634,21 @@ const Mapa = () => {
                             handleElementClick(data.id);
                           }
                         } catch (e) {
-                          console.error("Error al procesar mensaje del WebView:", e);
+                          log.error("Error al procesar mensaje del WebView:", e);
                         }
                       }}
                     />
                   )
+                ) : errorMapa ? (
+                  <EstadoPlano
+                    tipo="error"
+                    mensaje={MENSAJES_ERROR_PLANO[errorMapa].mensaje}
+                    detalle={MENSAJES_ERROR_PLANO[errorMapa].detalle}
+                    isDarkMode={isDarkMode}
+                    onReintentar={() => setIntentoMapa((n) => n + 1)}
+                  />
                 ) : (
-                  <Text style={{ color: "#71717a", textAlign: "center", marginTop: 20 }}>
-                    Cargando Mapa del Campus...
-                  </Text>
+                  <EstadoPlano tipo="cargando" mensaje="Cargando mapa del campus…" isDarkMode={isDarkMode} />
                 )}
               </View>
             </View>

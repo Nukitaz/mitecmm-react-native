@@ -1,4 +1,5 @@
 import { supabase } from "../integrations/supabase/client";
+import { log } from "../utils/log";
 
 export interface Aviso {
   id: string;
@@ -17,13 +18,13 @@ export async function fetchAvisos(): Promise<Aviso[]> {
       .order("fecha_publicacion", { ascending: false });
 
     if (error) {
-      console.error("Error al consultar avisos:", error.message);
+      log.error("Error al consultar avisos:", error.message);
       return [];
     }
 
     return data || [];
   } catch (err) {
-    console.error("Error en servicio de avisos:", err);
+    log.error("Error en servicio de avisos:", err);
     return [];
   }
 }

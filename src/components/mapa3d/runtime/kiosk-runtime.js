@@ -29,6 +29,27 @@
     }
   }
 
+  var fallido = false;
+
+  /**
+   * Informa a la app que el 3D no puede mostrarse (la app vuelve al plano 2D).
+   * motivo: "three" | "webgl" | "sin_aulas" | "construccion" | "contexto"
+   */
+  function fallar(motivo, detalle) {
+    if (fallido) return;
+    fallido = true;
+    var loader = document.getElementById("loader");
+    if (loader) {
+      loader.style.display = "flex";
+      loader.style.opacity = "1";
+      loader.innerHTML = "";
+      var texto = document.createElement("span");
+      texto.textContent = "No se pudo mostrar el modo 3D.";
+      loader.appendChild(texto);
+    }
+    sendToHost({ type: "KIOSK_ERROR", motivo: motivo, detalle: detalle ? String(detalle).slice(0, 200) : "" });
+  }
+
   function onHostMessage(event) {
     // Web: solo se aceptan mensajes de la ventana que contiene el iframe.
     if (!esNativo && event.source !== window.parent) return;
@@ -65,6 +86,10 @@
 
   // ===================================================================
   function iniciar(cfg) {
+    if (typeof THREE === "undefined") {
+      fallar("three");
+      return;
+    }
     var isDark = cfg.isDark;
     document.body.className = isDark ? "dark" : "light";
 
@@ -108,7 +133,13 @@
     updateCameraPosition();
 
     // 3. Renderizador WebGL
-    var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+    var renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+    } catch (e) {
+      fallar("webgl", e && e.message);
+      return;
+    }
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.shadowMap.enabled = true;
@@ -335,14 +366,20 @@
 
     // 7. Parseo del SVG y Construcción del Edificio
     function buildFloorFromSvg(svgText) {
-      if (!svgText) return;
+      if (!svgText) {
+        fallar("sin_aulas");
+        return;
+      }
 
       var sandbox = document.getElementById("svg-parser-sandbox");
       // El SVG llega saneado desde la app; además se interpreta con DOMParser
       // (no ejecuta scripts) antes de insertarlo para poder medirlo con getBBox.
       var parsed = new DOMParser().parseFromString(svgText, "image/svg+xml");
       var svgRoot = parsed.documentElement;
-      if (!svgRoot || svgRoot.nodeName.toLowerCase() !== "svg" || parsed.getElementsByTagName("parsererror").length) return;
+      if (!svgRoot || svgRoot.nodeName.toLowerCase() !== "svg" || parsed.getElementsByTagName("parsererror").length) {
+        fallar("sin_aulas");
+        return;
+      }
       sandbox.textContent = "";
       sandbox.appendChild(document.importNode(svgRoot, true));
       var svgEl = sandbox.querySelector("svg");
@@ -449,7 +486,10 @@
         addRoom(id, el, bbox.x, bbox.y, bbox.width, bbox.height);
       });
 
-      if (rawRooms.length === 0) return;
+      if (rawRooms.length === 0) {
+        fallar("sin_aulas");
+        return;
+      }
 
       var buildingW = maxX - minX;
       var buildingD = maxY - minY;
@@ -531,7 +571,7 @@
           interactiveObjects.push(billboardSprite);
           roomMesh.userData.billboard = billboardSprite;
         } catch (e) {
-          console.warn("Error generando aula/billboard:", e);
+          // Un aula defectuosa no impide construir el resto del edificio.
         }
       });
 
@@ -553,8 +593,9 @@
     try {
       buildFloorFromSvg(cfg.svg);
     } catch (err) {
-      console.error("Error construyendo plano 3D:", err);
+      fallar("construccion", err && err.message);
     }
+    if (fallido) return;
 
     // 8. Raycasting para Selección por Toque o Clic
     var raycaster = new THREE.Raycaster();
@@ -794,9 +835,34 @@
       },
     });
 
+    // 9b. Pérdida y recuperación del contexto WebGL
+    var contextoPerdido = false;
+    var temporizadorContexto = null;
+    var avisoContexto = document.createElement("div");
+    avisoContexto.id = "aviso-contexto";
+    avisoContexto.textContent = "Recuperando gráficos…";
+    avisoContexto.hidden = true;
+    document.body.appendChild(avisoContexto);
+
+    renderer.domElement.addEventListener("webglcontextlost", function (e) {
+      e.preventDefault(); // permite que el navegador restaure el contexto
+      contextoPerdido = true;
+      avisoContexto.hidden = false;
+      temporizadorContexto = setTimeout(function () {
+        if (contextoPerdido) fallar("contexto");
+      }, 5000);
+    });
+    renderer.domElement.addEventListener("webglcontextrestored", function () {
+      contextoPerdido = false;
+      avisoContexto.hidden = true;
+      if (temporizadorContexto) clearTimeout(temporizadorContexto);
+    });
+
     // 10. Bucle de Renderizado
     function animate() {
+      if (fallido) return;
       requestAnimationFrame(animate);
+      if (contextoPerdido) return;
 
       if (currentSelectedMesh) {
         materials.roomSelected.emissiveIntensity = 0.45 + 0.25 * Math.sin(Date.now() * 0.006);

@@ -4,12 +4,19 @@ import { Navbar } from "../components/Navbar";
 import { EdificioHeader } from "../components/edificio/EdificioHeader";
 import { FloorSelector } from "../components/edificio/FloorSelector";
 import { MapaWebView } from "../components/edificio/MapaWebView";
-import { Mapa3DView } from "../components/mapa3d/Mapa3DView";
-import { getPlanoEdificioUrl } from "../services/mapasService";
+import { Mapa3DView, MotivoError3D } from "../components/mapa3d/Mapa3DView";
+import { EstadoPlano } from "../components/common/EstadoPlano";
+import {
+  getPlanoEdificioUrl,
+  descargarPlanoSvg,
+  PlanoError,
+  ErrorPlano,
+  MENSAJES_ERROR_PLANO,
+} from "../services/mapasService";
+import { log } from "../utils/log";
 import { AULAS_UBICACIONES } from "./Mapa";
 import { useTheme } from "../context/ThemeContext";
 import { esIdSvgValido, normalizarAulaParam } from "../utils/sanitize";
-import { sanitizarSvg } from "../utils/svgSanitizer";
 import { Box, Layers } from "lucide-react-native";
 
 const formatearNombreEdificio = (id: string, nombreOriginal?: string) => {
@@ -42,15 +49,37 @@ const formatearNombreEdificio = (id: string, nombreOriginal?: string) => {
   return lugaresEspeciales[limpio] || `Edificio ${limpio.toUpperCase()}`;
 };
 
+/** Estado de descarga de cada planta. */
+type EstadoPlanta =
+  | { estado: "cargando" }
+  | { estado: "listo"; svg: string }
+  | { estado: "error"; motivo: ErrorPlano };
+
+/** Mensajes cuando el 3D no puede mostrarse y la vista vuelve al 2D. */
+const AVISOS_3D: Record<MotivoError3D, string> = {
+  webgl: "Este dispositivo o navegador no admite gráficos 3D (WebGL). Se muestra el plano 2D.",
+  three: "No se pudo cargar el motor 3D. Se muestra el plano 2D.",
+  sin_aulas: "Este plano no tiene aulas que se puedan mostrar en 3D. Se muestra el plano 2D.",
+  construccion: "Ocurrió un error al construir la vista 3D. Se muestra el plano 2D.",
+  contexto: "Se perdió la aceleración gráfica del dispositivo. Se muestra el plano 2D.",
+  tiempo: "La vista 3D tardó demasiado en cargar. Se muestra el plano 2D.",
+  no_disponible: "La vista 3D no está disponible en esta versión. Se muestra el plano 2D.",
+};
+
+/** IDs de edificio válidos: evita rutas extrañas en la URL de Storage. */
+const ID_EDIFICIO_RE = /^[a-z0-9_]{1,20}$/;
+
 const Edificio = ({ route }: any) => {
   const { isDarkMode } = useTheme();
 
-  const edificioId = route?.params?.id || "p";
+  const edificioIdParam = String(route?.params?.id || "p").toLowerCase().trim();
+  const edificioValido = ID_EDIFICIO_RE.test(edificioIdParam);
+  const edificioId = edificioValido ? edificioIdParam : "desconocido";
   const nombreEdificio = formatearNombreEdificio(
     edificioId,
     route?.params?.nombre
   );
-  const plantaInicial = route?.params?.plantaInicial || "baja";
+  const plantaInicial: "baja" | "alta" = route?.params?.plantaInicial === "alta" ? "alta" : "baja";
 
   const webViewRef = useRef<any>(null);
 
@@ -60,11 +89,13 @@ const Edificio = ({ route }: any) => {
   );
   const [planta, setPlanta] = useState<"baja" | "alta">(plantaInicial);
 
-  const [svgBaja, setSvgBaja] = useState<string | null>(null);
-  const [svgAlta, setSvgAlta] = useState<string | null>(null);
+  const [plantaBaja, setPlantaBaja] = useState<EstadoPlanta>({ estado: "cargando" });
+  const [plantaAlta, setPlantaAlta] = useState<EstadoPlanta>({ estado: "cargando" });
+  const [intento, setIntento] = useState(0);
+  const [aviso3D, setAviso3D] = useState<string | null>(null);
 
-  const planoBajaUrl = getPlanoEdificioUrl(edificioId, "baja");
-  const planoAltaUrl = getPlanoEdificioUrl(edificioId, "alta");
+  const svgBaja = plantaBaja.estado === "listo" ? plantaBaja.svg : null;
+  const svgAlta = plantaAlta.estado === "listo" ? plantaAlta.svg : null;
 
   useEffect(() => {
     if (route?.params?.aulaResaltada !== undefined) {
@@ -80,17 +111,36 @@ const Edificio = ({ route }: any) => {
     }
   }, [route?.params?.aulaResaltada]);
 
+  // Descarga de ambas plantas. Se cancela al cambiar de edificio (evita que una
+  // respuesta tardía del edificio anterior sobrescriba al actual).
   useEffect(() => {
-    fetch(planoBajaUrl)
-      .then((r) => r.text())
-      .then((t) => setSvgBaja(sanitizarSvg(t)))
-      .catch(console.error);
+    const control = new AbortController();
+    const cargar = (p: "baja" | "alta", set: (e: EstadoPlanta) => void) => {
+      set({ estado: "cargando" });
+      if (!edificioValido) {
+        set({ estado: "error", motivo: "no_existe" });
+        return;
+      }
+      descargarPlanoSvg(getPlanoEdificioUrl(edificioId, p), control.signal)
+        .then((svg) => set({ estado: "listo", svg }))
+        .catch((e) => {
+          if (control.signal.aborted) return;
+          log.error(`Plano ${edificioId}/${p}:`, e);
+          set({ estado: "error", motivo: e instanceof PlanoError ? e.motivo : "red" });
+        });
+    };
+    cargar("baja", setPlantaBaja);
+    cargar("alta", setPlantaAlta);
+    return () => control.abort();
+  }, [edificioId, edificioValido, intento]);
 
-    fetch(planoAltaUrl)
-      .then((r) => r.text())
-      .then((t) => setSvgAlta(sanitizarSvg(t)))
-      .catch(console.error);
-  }, [edificioId]);
+  const reintentar = () => setIntento((n) => n + 1);
+
+  const alFallar3D = (motivo: MotivoError3D) => {
+    log.warn("3D no disponible:", motivo);
+    setAviso3D(AVISOS_3D[motivo]);
+    setModoVista("2d");
+  };
 
   const targetSvgId = useMemo(() => {
     if (!aulaResaltada) return null;
@@ -142,6 +192,7 @@ const Edificio = ({ route }: any) => {
   );
 
   const currentSvgFor3D = planta === "baja" ? svgBaja : svgAlta;
+  const estadoActual = planta === "baja" ? plantaBaja : plantaAlta;
 
   return (
     <View style={[styles.screen, !isDarkMode && styles.screenLight]}>
@@ -180,7 +231,10 @@ const Edificio = ({ route }: any) => {
                 styles.modeBtn,
                 modoVista === "3d" && (isDarkMode ? styles.modeBtnActiveDark : styles.modeBtnActiveLight),
               ]}
-              onPress={() => setModoVista("3d")}
+              onPress={() => {
+                setAviso3D(null);
+                setModoVista("3d");
+              }}
               activeOpacity={0.7}
             >
               <Box size={14} color={modoVista === "3d" ? (isDarkMode ? "#ffffff" : "#0f172a") : (isDarkMode ? "#71717a" : "#64748b")} />
@@ -196,6 +250,18 @@ const Edificio = ({ route }: any) => {
             </TouchableOpacity>
           </View>
         </View>
+
+        {aviso3D && (
+          <View
+            style={[styles.avisoBanner, !isDarkMode && styles.avisoBannerLight]}
+            accessibilityRole="alert"
+          >
+            <Text style={[styles.avisoText, !isDarkMode && styles.avisoTextLight]}>{aviso3D}</Text>
+            <TouchableOpacity onPress={() => setAviso3D(null)} accessibilityLabel="Cerrar aviso">
+              <Text style={styles.quitarText}>cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {aulaResaltada && (
           <View
@@ -227,7 +293,17 @@ const Edificio = ({ route }: any) => {
               ]}
             >
               <View style={styles.mapWrapper}>
-                {modoVista === "3d" ? (
+                {estadoActual.estado === "cargando" ? (
+                  <EstadoPlano tipo="cargando" mensaje="Cargando plano arquitectónico…" isDarkMode={isDarkMode} />
+                ) : estadoActual.estado === "error" ? (
+                  <EstadoPlano
+                    tipo="error"
+                    mensaje={MENSAJES_ERROR_PLANO[estadoActual.motivo].mensaje}
+                    detalle={MENSAJES_ERROR_PLANO[estadoActual.motivo].detalle}
+                    isDarkMode={isDarkMode}
+                    onReintentar={estadoActual.motivo === "no_existe" ? undefined : reintentar}
+                  />
+                ) : modoVista === "3d" ? (
                   <Mapa3DView
                     svgXml={currentSvgFor3D}
                     edificioId={edificioId}
@@ -235,6 +311,7 @@ const Edificio = ({ route }: any) => {
                     selectedRoomId={targetSvgId}
                     isDarkMode={isDarkMode}
                     onRoomClick={(id) => setAulaResaltada(normalizarAulaParam(id)?.toUpperCase() ?? null)}
+                    onError={alFallar3D}
                   />
                 ) : (
                   <MapaWebView
@@ -335,6 +412,21 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   resaltadoBannerLight: { backgroundColor: "#f3e8ff" },
+  avisoBanner: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "rgba(120, 53, 15, 0.35)",
+    borderWidth: 1,
+    borderColor: "rgba(245, 158, 11, 0.4)",
+    padding: 8,
+    borderRadius: 4,
+    marginBottom: 8,
+  },
+  avisoBannerLight: { backgroundColor: "#fffbeb", borderColor: "#fcd34d" },
+  avisoText: { color: "#fcd34d", flex: 1, fontSize: 13 },
+  avisoTextLight: { color: "#92400e" },
   resaltadoText: { color: "#c084fc", fontWeight: "bold" },
   quitarText: { color: "#71717a", textDecorationLine: "underline" },
   

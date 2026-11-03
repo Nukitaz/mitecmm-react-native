@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { log } from "../utils/log";
 
 type Theme = "dark" | "light";
 
@@ -25,7 +26,7 @@ const getInitialTheme = (): Theme => {
         return savedTheme;
       }
     } catch (error) {
-      console.error("Error al acceder a localStorage:", error);
+      log.error("Error al acceder a localStorage:", error);
     }
   }
   return "dark"; // Valor por defecto
@@ -51,7 +52,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             setTheme(savedTheme);
           }
         } catch (error) {
-          console.error("Error al cargar tema en móvil:", error);
+          log.error("Error al cargar tema en móvil:", error);
         }
       };
       loadMobileTheme();
@@ -67,7 +68,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         localStorage.setItem(STORAGE_KEY, nextTheme);
       } else {
         AsyncStorage.setItem(STORAGE_KEY, nextTheme).catch((err) =>
-          console.error("Error al guardar tema en móvil:", err)
+          log.error("Error al guardar tema en móvil:", err)
         );
       }
 
