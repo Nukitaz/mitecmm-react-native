@@ -3,6 +3,7 @@ import { View, StyleSheet, Platform } from "react-native";
 import { WebView } from "react-native-webview";
 import { getInjectedJavaScript } from "../../constants/scriptInject";
 import { esIdSvgValido } from "../../utils/sanitize";
+import { PROPS_WEBVIEW_SEGURO } from "../../constants/webviewSeguro";
 
 interface MapaWebViewProps {
   svgBaja: string | null | undefined;
@@ -127,7 +128,7 @@ export const MapaWebView = forwardRef<WebView, MapaWebViewProps>(
     return (
       <WebView
         ref={ref}
-        originWhitelist={["*"]}
+        {...PROPS_WEBVIEW_SEGURO}
         source={{
           html: `
             <!DOCTYPE html>
@@ -232,7 +233,7 @@ export const MapaWebView = forwardRef<WebView, MapaWebViewProps>(
         onMessage={(event) => {
           try {
             const data = JSON.parse(event.nativeEvent.data);
-            if (data.type === "AULA_CLICK" && data.id) {
+            if (data?.type === "AULA_CLICK" && typeof data.id === "string" && data.id.length <= 120) {
               onAulaClick(data.id);
             }
           } catch (e) {

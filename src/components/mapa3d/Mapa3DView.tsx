@@ -2,6 +2,8 @@ import React, { useMemo, useRef, useEffect } from "react";
 import { View, StyleSheet, Platform, StyleProp, ViewStyle, ActivityIndicator, Text } from "react-native";
 import { WebView } from "react-native-webview";
 import { generateKioskHtml } from "./kioskEngine";
+import { PROPS_WEBVIEW_SEGURO } from "../../constants/webviewSeguro";
+import { esIdSvgValido } from "../../utils/sanitize";
 
 interface Mapa3DViewProps {
   svgXml: string | null | undefined;
@@ -60,7 +62,7 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
   const handleMessage = (event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent?.data || event.data);
-      if (data.type === "AULA_CLICK" && data.id && onRoomClick) {
+      if (data?.type === "AULA_CLICK" && esIdSvgValido(String(data.id).toLowerCase()) && onRoomClick) {
         onRoomClick(data.id);
       }
     } catch {
@@ -72,9 +74,11 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
     if (Platform.OS !== "web" || typeof window === "undefined") return;
 
     const handleWebMessage = (event: MessageEvent) => {
+      // Solo se aceptan mensajes del iframe del quiosco (sandbox => origen "null").
+      if (!iframeRef.current || event.source !== iframeRef.current.contentWindow) return;
       try {
         const data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
-        if (data?.type === "AULA_CLICK" && data.id && onRoomClick) {
+        if (data?.type === "AULA_CLICK" && esIdSvgValido(String(data.id).toLowerCase()) && onRoomClick) {
           onRoomClick(data.id);
         }
       } catch {
@@ -104,6 +108,11 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
         <iframe
           ref={iframeRef}
           srcDoc={htmlContent}
+          title="Mapa 3D del edificio"
+          // Sin allow-same-origin: el contenido del plano no puede acceder
+          // al origen de la app (sesión, almacenamiento, DOM del padre).
+          sandbox="allow-scripts"
+          referrerPolicy="no-referrer"
           style={{
             width: "100%",
             height: "100%",
@@ -120,7 +129,7 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
     <View style={[styles.container, style]}>
       <WebView
         ref={webViewRef}
-        originWhitelist={["*"]}
+        {...PROPS_WEBVIEW_SEGURO}
         source={{ html: htmlContent }}
         style={[
           styles.webview,
@@ -128,8 +137,7 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
         ]}
         onMessage={handleMessage}
         javaScriptEnabled={true}
-        domStorageEnabled={true}
-        allowFileAccess={true}
+        domStorageEnabled={false}
         scalesPageToFit={false}
         scrollEnabled={false}
         overScrollMode="never"

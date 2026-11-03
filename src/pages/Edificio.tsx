@@ -9,6 +9,7 @@ import { getPlanoEdificioUrl } from "../services/mapasService";
 import { AULAS_UBICACIONES } from "./Mapa";
 import { useTheme } from "../context/ThemeContext";
 import { esIdSvgValido, normalizarAulaParam } from "../utils/sanitize";
+import { sanitizarSvg } from "../utils/svgSanitizer";
 import { Box, Layers } from "lucide-react-native";
 
 const formatearNombreEdificio = (id: string, nombreOriginal?: string) => {
@@ -82,12 +83,12 @@ const Edificio = ({ route }: any) => {
   useEffect(() => {
     fetch(planoBajaUrl)
       .then((r) => r.text())
-      .then(setSvgBaja)
+      .then((t) => setSvgBaja(sanitizarSvg(t)))
       .catch(console.error);
 
     fetch(planoAltaUrl)
       .then((r) => r.text())
-      .then(setSvgAlta)
+      .then((t) => setSvgAlta(sanitizarSvg(t)))
       .catch(console.error);
   }, [edificioId]);
 

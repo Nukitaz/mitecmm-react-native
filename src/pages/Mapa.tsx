@@ -15,6 +15,8 @@ import { Navbar } from "../components/Navbar";
 import { getMapaGeneralUrl } from "../services/mapasService";
 import { obtenerProfesores } from "../services/profesoresService";
 import { useTheme } from "../context/ThemeContext";
+import { sanitizarSvg } from "../utils/svgSanitizer";
+import { PROPS_WEBVIEW_SEGURO } from "../constants/webviewSeguro";
 
 export const AULAS_UBICACIONES: Record<
   string,
@@ -228,8 +230,9 @@ const Mapa = () => {
       fetch(mapaGeneralUrl)
         .then((res) => res.text())
         .then((text) => {
-          mapaGeneralCache = text;
-          setSvgContent(text);
+          const limpio = sanitizarSvg(text);
+          mapaGeneralCache = limpio;
+          setSvgContent(limpio);
         })
         .catch((err) => console.error("Error al cargar el mapa general:", err));
     }
@@ -538,7 +541,7 @@ const Mapa = () => {
                     />
                   ) : (
                     <WebView
-                      originWhitelist={["*"]}
+                      {...PROPS_WEBVIEW_SEGURO}
                       source={{
                         html: `
                           <!DOCTYPE html>
