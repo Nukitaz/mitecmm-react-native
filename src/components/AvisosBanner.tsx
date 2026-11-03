@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -89,7 +89,7 @@ export const AvisosBanner = () => {
 
   // Ancho medido de un bloque para animación continua en Android
   const [singleWidth, setSingleWidth] = useState(0);
-  const animatedValue = useRef(new Animated.Value(0)).current;
+  const [animatedValue] = useState(() => new Animated.Value(0));
 
   // Cargar datos reales de Supabase
   useEffect(() => {
@@ -126,7 +126,7 @@ export const AvisosBanner = () => {
     animation.start();
 
     return () => animation.stop();
-  }, [singleWidth, baseList]);
+  }, [singleWidth, baseList, animatedValue]);
 
   const renderTickerItem = (a: Aviso, key: string) => (
     <TouchableOpacity

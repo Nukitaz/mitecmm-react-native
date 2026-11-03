@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback } from "react";
+import React, { useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { View, StyleSheet, Platform, StyleProp, ViewStyle, ActivityIndicator, Text } from "react-native";
 import { WebView, WebViewMessageEvent } from "react-native-webview";
 import { PROPS_WEBVIEW_SEGURO } from "../../constants/webviewSeguro";
@@ -58,7 +58,9 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
 
   // Valores actuales para responder al saludo del motor sin recrear listeners.
   const actual = useRef({ svgXml, isDarkMode, selectedRoomId, onRoomClick, onError, onSeleccionLimpiada, svgSecundario, aqui, inactividadMs, titulo, planta });
-  actual.current = { svgXml, isDarkMode, selectedRoomId, onRoomClick, onError, onSeleccionLimpiada, svgSecundario, aqui, inactividadMs, titulo, planta };
+  useLayoutEffect(() => {
+    actual.current = { svgXml, isDarkMode, selectedRoomId, onRoomClick, onError, onSeleccionLimpiada, svgSecundario, aqui, inactividadMs, titulo, planta };
+  });
   const escenaLista = useRef(false);
   const errorReportado = useRef(false);
 

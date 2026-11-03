@@ -109,19 +109,19 @@ const Edificio = ({ route }: any) => {
   const svgBaja = plantaBaja.estado === "listo" ? plantaBaja.svg : null;
   const svgAlta = plantaAlta.estado === "listo" ? plantaAlta.svg : null;
 
-  useEffect(() => {
-    if (route?.params?.aulaResaltada !== undefined) {
-      const nuevaAula = normalizarAulaParam(route.params.aulaResaltada);
+  // Si llega otra aula por parámetro, se aplica durante el render
+  // (patrón recomendado por React en lugar de setState dentro de un efecto).
+  const aulaParam = route?.params?.aulaResaltada;
+  const [aulaParamPrevio, setAulaParamPrevio] = useState(aulaParam);
+  if (aulaParam !== aulaParamPrevio) {
+    setAulaParamPrevio(aulaParam);
+    if (aulaParam !== undefined) {
+      const nuevaAula = normalizarAulaParam(aulaParam);
       setAulaResaltada(nuevaAula);
-
-      if (nuevaAula) {
-        const ubicacion = AULAS_UBICACIONES[nuevaAula.toUpperCase()];
-        if (ubicacion?.planta) {
-          setPlanta(ubicacion.planta);
-        }
-      }
+      const ubicacion = nuevaAula ? AULAS_UBICACIONES[nuevaAula.toUpperCase()] : undefined;
+      if (ubicacion?.planta) setPlanta(ubicacion.planta);
     }
-  }, [route?.params?.aulaResaltada]);
+  }
 
   // Descarga de ambas plantas. Se cancela al cambiar de edificio (evita que una
   // respuesta tardía del edificio anterior sobrescriba al actual).

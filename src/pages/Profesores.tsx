@@ -143,11 +143,13 @@ const Profesores = ({ route }: any) => {
   const [isFocused, setIsFocused] = useState(false);
   const [sugerencias, setSugerencias] = useState<Suggestion[]>([]);
 
-  useEffect(() => {
-    if (route?.params?.q !== undefined) {
-      setBusqueda(route.params.q);
-    }
-  }, [route?.params?.q]);
+  // Si llega otra búsqueda por parámetro, se aplica durante el render.
+  const qParam = route?.params?.q;
+  const [qParamPrevio, setQParamPrevio] = useState(qParam);
+  if (qParam !== qParamPrevio) {
+    setQParamPrevio(qParam);
+    if (qParam !== undefined) setBusqueda(qParam);
+  }
 
   // Consulta con Debounce de 300ms
   useEffect(() => {

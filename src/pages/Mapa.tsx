@@ -238,7 +238,6 @@ const Mapa = () => {
   useEffect(() => {
     if (mapaGeneralCache) return;
     const control = new AbortController();
-    setErrorMapa(null);
     descargarPlanoSvg(mapaGeneralUrl, control.signal)
       .then((limpio) => {
         mapaGeneralCache = limpio;
@@ -645,7 +644,10 @@ const Mapa = () => {
                     mensaje={MENSAJES_ERROR_PLANO[errorMapa].mensaje}
                     detalle={MENSAJES_ERROR_PLANO[errorMapa].detalle}
                     isDarkMode={isDarkMode}
-                    onReintentar={() => setIntentoMapa((n) => n + 1)}
+                    onReintentar={() => {
+                      setErrorMapa(null);
+                      setIntentoMapa((n) => n + 1);
+                    }}
                   />
                 ) : (
                   <EstadoPlano tipo="cargando" mensaje="Cargando mapa del campus…" isDarkMode={isDarkMode} />
