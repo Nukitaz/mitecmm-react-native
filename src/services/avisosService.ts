@@ -13,7 +13,7 @@ export async function fetchAvisos(): Promise<Aviso[]> {
   try {
     const { data, error } = await supabase
       .from("avisos")
-      .select("*")
+      .select("id,titulo,contenido,fecha_publicacion,es_urgente,subtitulo")
       .order("fecha_publicacion", { ascending: false });
 
     if (error) {
