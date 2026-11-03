@@ -84,10 +84,15 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
     return () => window.removeEventListener("message", handler);
   }, [procesarMensaje]);
 
-  // Resaltado sin recargar (el motor lo atenderá a partir del Bloque 5).
+  // Resaltar o quitar el resaltado sin recargar la escena.
+  // Si el motor aún no terminó de cargar, el mensaje se ignora y la selección
+  // vigente viaja en INIT (se lee de `actual` al recibir KIOSK_LOADED).
   useEffect(() => {
-    if (!selectedRoomId || !esIdSvgValido(selectedRoomId)) return;
-    enviar({ type: "SELECT_ROOM", id: selectedRoomId });
+    if (selectedRoomId && esIdSvgValido(selectedRoomId)) {
+      enviar({ type: "SELECT_ROOM", id: selectedRoomId });
+    } else {
+      enviar({ type: "CLEAR_SELECTION" });
+    }
   }, [selectedRoomId, enviar]);
 
   if (!svgXml) {

@@ -16,6 +16,8 @@
   var ID_VALIDO = /^[a-z0-9_]{1,80}$/;
   var esNativo = !!(window.ReactNativeWebView && window.ReactNativeWebView.postMessage);
   var iniciado = false;
+  /** Se asigna al terminar iniciar(): { seleccionar(id), limpiar() } */
+  var motor = null;
 
   function sendToHost(data) {
     var msg = JSON.stringify(data);
@@ -44,6 +46,11 @@
         isDark: data.isDark === true,
         selectedId: typeof data.selectedId === "string" && ID_VALIDO.test(data.selectedId) ? data.selectedId : "",
       });
+    } else if (data.type === "SELECT_ROOM" && motor && typeof data.id === "string" && ID_VALIDO.test(data.id)) {
+      // Selección pedida por la app: no se notifica de vuelta (evita ciclos).
+      motor.seleccionar(data.id);
+    } else if (data.type === "CLEAR_SELECTION" && motor) {
+      motor.limpiar();
     }
   }
 
@@ -369,15 +376,43 @@
       var rawRooms = [];
       var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
 
-      function addRoom(id, x, y, w, h) {
-        if (w <= 2 || h <= 2) return;
+      // Matriz del sistema de coordenadas raíz del SVG: todas las aulas se expresan
+      // en ese espacio, respetando los transform de capas/grupos (Inkscape).
+      var rootCtm = svgEl.getCTM();
+      var rootInv = rootCtm ? rootCtm.inverse() : null;
+
+      function matrizDe(el) {
+        var ctm = el.getCTM();
+        if (!ctm || !rootInv) return null;
+        return rootInv.multiply(ctm);
+      }
+
+      function transformar(m, x, y) {
+        if (!m) return { x: x, y: y };
+        return { x: m.a * x + m.c * y + m.e, y: m.b * x + m.d * y + m.f };
+      }
+
+      /** Agrega un aula a partir de su caja local (x, y, w, h) y la matriz del elemento. */
+      function addRoom(id, el, x, y, w, h) {
         if (seenIds[id]) return;
+        var m = matrizDe(el);
+        var sx = m ? Math.hypot(m.a, m.b) : 1;
+        var sy = m ? Math.hypot(m.c, m.d) : 1;
+        var ancho = w * sx, alto = h * sy;
+        if (ancho <= 2 || alto <= 2) return;
         seenIds[id] = true;
-        rawRooms.push({ id: id, x: x, y: y, w: w, h: h });
-        minX = Math.min(minX, x);
-        maxX = Math.max(maxX, x + w);
-        minY = Math.min(minY, y);
-        maxY = Math.max(maxY, y + h);
+
+        var centro = transformar(m, x + w / 2, y + h / 2);
+        var angulo = m ? Math.atan2(m.b, m.a) : 0;
+        rawRooms.push({ id: id, cx: centro.x, cy: centro.y, w: ancho, h: alto, angle: angulo });
+
+        [[x, y], [x + w, y], [x, y + h], [x + w, y + h]].forEach(function (c) {
+          var p = transformar(m, c[0], c[1]);
+          minX = Math.min(minX, p.x);
+          maxX = Math.max(maxX, p.x);
+          minY = Math.min(minY, p.y);
+          maxY = Math.max(maxY, p.y);
+        });
       }
 
       // PASO 1: <rect id="...">
@@ -390,7 +425,7 @@
         var y = parseFloat(rect.getAttribute("y")) || 0;
         var w = parseFloat(rect.getAttribute("width")) || 0;
         var h = parseFloat(rect.getAttribute("height")) || 0;
-        addRoom(id, x, y, w, h);
+        addRoom(id, rect, x, y, w, h);
       });
 
       // PASO 2: formas NO-rect con prefijo de servicio
@@ -401,9 +436,17 @@
         if (!isServiceId(id)) return;
         if (seenIds[id]) return;
 
+        // Los espacios suelen estar ocultos (display:none) en el plano y getBBox() de un
+        // elemento oculto mide 0: se muestra solo mientras se mide (el sandbox es invisible).
+        var displayPrevio = el.style.getPropertyValue("display");
+        var prioridadPrevia = el.style.getPropertyPriority("display");
+        el.style.setProperty("display", "inline", "important");
         var bbox;
-        try { bbox = el.getBBox(); } catch (e) { return; }
-        addRoom(id, bbox.x, bbox.y, bbox.width, bbox.height);
+        try { bbox = el.getBBox(); } catch (e) { bbox = null; }
+        if (displayPrevio) el.style.setProperty("display", displayPrevio, prioridadPrevia);
+        else el.style.removeProperty("display");
+        if (!bbox) return;
+        addRoom(id, el, bbox.x, bbox.y, bbox.width, bbox.height);
       });
 
       if (rawRooms.length === 0) return;
@@ -442,13 +485,8 @@
           var boxW = room.w * scale;
           var boxD = room.h * scale;
 
-          var roomCenterX = room.x + room.w / 2;
-          var roomCenterY = room.y + room.h / 2;
-
-          var worldX = (roomCenterX - buildingCenterX) * scale;
-          var worldZ = (roomCenterY - buildingCenterY) * scale;
-
-          var isSelected = selectedTargetId && room.id.toLowerCase() === selectedTargetId.toLowerCase();
+          var worldX = (room.cx - buildingCenterX) * scale;
+          var worldZ = (room.cy - buildingCenterY) * scale;
           var defaultMat = [
             materials.roomWall,
             materials.roomWall,
@@ -459,8 +497,10 @@
           ];
 
           var roomGeo = new THREE.BoxGeometry(boxW, roomExtrudeHeight, boxD);
-          var roomMesh = new THREE.Mesh(roomGeo, isSelected ? materials.roomSelected : defaultMat);
+          var roomMesh = new THREE.Mesh(roomGeo, defaultMat);
           roomMesh.position.set(worldX, roomExtrudeHeight / 2, worldZ);
+          // SVG (x, y hacia abajo) -> mundo (x, z): una rotación θ del plano equivale a rotation.y = -θ
+          roomMesh.rotation.y = -room.angle;
           roomMesh.castShadow = true;
           roomMesh.receiveShadow = true;
           roomMesh.userData = { id: room.id, name: room.id, defaultMaterial: defaultMat, isRoom: true };
@@ -472,11 +512,6 @@
           floorGroup.add(roomMesh);
           roomMeshes[room.id.toLowerCase()] = roomMesh;
           interactiveObjects.push(roomMesh);
-
-          if (isSelected) {
-            currentSelectedMesh = roomMesh;
-            targetCameraLerp = new THREE.Vector3(worldX, 0, worldZ);
-          }
 
           // D. Billboard
           var serviceType = getServiceType(room.id);
@@ -505,7 +540,14 @@
         setTimeout(function () { loader.style.display = "none"; }, 400);
       }
 
-      sendToHost({ type: "KIOSK_READY", totalRooms: rawRooms.length });
+      sendToHost({
+        type: "KIOSK_READY",
+        totalRooms: rawRooms.length,
+        // Centros en coordenadas del SVG: permiten verificar que el 3D coincide con el 2D.
+        rooms: rawRooms.map(function (r) {
+          return { id: r.id, cx: Math.round(r.cx * 10) / 10, cy: Math.round(r.cy * 10) / 10 };
+        }),
+      });
     }
 
     try {
@@ -518,19 +560,30 @@
     var raycaster = new THREE.Raycaster();
     var mouse = new THREE.Vector2();
 
-    function selectRoomById(id, animateCamera) {
-      if (!id) return;
-      var cleanId = id.toLowerCase();
-      var targetMesh = roomMeshes[cleanId];
+    /**
+     * Busca el aula: 1) coincidencia exacta; 2) una clave que extienda el ID o sea
+     * extendida por él respetando la frontera "_" (aula_1 NO coincide con aula_10),
+     * solo si la candidata es ÚNICA: un ID ambiguo no selecciona nada al azar.
+     */
+    function buscarAula(cleanId) {
+      if (roomMeshes[cleanId]) return roomMeshes[cleanId];
+      var candidatas = Object.keys(roomMeshes).filter(function (k) {
+        return k.indexOf(cleanId + "_") === 0 || cleanId.indexOf(k + "_") === 0;
+      });
+      return candidatas.length === 1 ? roomMeshes[candidatas[0]] : null;
+    }
 
-      if (!targetMesh) {
-        Object.keys(roomMeshes).forEach(function (k) {
-          if (k.indexOf(cleanId) !== -1 || cleanId.indexOf(k) !== -1) {
-            targetMesh = roomMeshes[k];
-          }
-        });
+    function limpiarSeleccion() {
+      if (currentSelectedMesh) {
+        currentSelectedMesh.material = currentSelectedMesh.userData.defaultMaterial;
       }
+      currentSelectedMesh = null;
+    }
 
+    /** notificar=false cuando la selección viene de la app (evita el ciclo app -> motor -> app). */
+    function selectRoomById(id, animateCamera, notificar) {
+      if (!id) return;
+      var targetMesh = buscarAula(id.toLowerCase());
       if (!targetMesh) return;
 
       if (currentSelectedMesh && currentSelectedMesh !== targetMesh) {
@@ -544,13 +597,17 @@
         targetCameraLerp = new THREE.Vector3(targetMesh.position.x, 0, targetMesh.position.z);
       }
 
-      sendToHost({ type: "AULA_CLICK", id: targetMesh.userData.id, name: targetMesh.userData.name });
+      if (notificar !== false) {
+        sendToHost({ type: "AULA_CLICK", id: targetMesh.userData.id, name: targetMesh.userData.name });
+      }
     }
 
     function handleRaycast(clientX, clientY) {
+      // Tamaño actual (no el del arranque): tras rotar o redimensionar el clic sigue siendo exacto.
       var rect = container.getBoundingClientRect();
-      mouse.x = ((clientX - rect.left) / width) * 2 - 1;
-      mouse.y = -((clientY - rect.top) / height) * 2 + 1;
+      if (!rect.width || !rect.height) return;
+      mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
 
       raycaster.setFromCamera(mouse, camera);
       var intersects = raycaster.intersectObjects(interactiveObjects, true);
@@ -559,7 +616,7 @@
         var hit = intersects[0].object;
         var targetMesh = hit.userData.roomMesh || (hit.userData.isRoom ? hit : null);
         if (targetMesh && targetMesh.userData && targetMesh.userData.id) {
-          selectRoomById(targetMesh.userData.id, true);
+          selectRoomById(targetMesh.userData.id, true, true);
         }
       }
     }
@@ -704,9 +761,37 @@
     window.addEventListener("resize", function () {
       var w = container.clientWidth || window.innerWidth;
       var h = container.clientHeight || window.innerHeight;
+      width = w;
+      height = h;
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
+    });
+
+    // Selección inicial (misma lógica de búsqueda que las selecciones posteriores)
+    if (selectedTargetId) selectRoomById(selectedTargetId, true, false);
+
+    motor = {
+      seleccionar: function (id) { selectRoomById(id, true, false); },
+      limpiar: limpiarSeleccion,
+    };
+
+    // Diagnóstico de solo lectura (pruebas automáticas y depuración en DevTools).
+    window.__kiosco = Object.freeze({
+      seleccion: function () {
+        return currentSelectedMesh ? currentSelectedMesh.userData.id : null;
+      },
+      aulas: function () {
+        return Object.keys(roomMeshes);
+      },
+      /** Posición en pantalla (px del iframe) del centro superior de un aula. */
+      pantalla: function (id) {
+        var mesh = roomMeshes[String(id).toLowerCase()];
+        if (!mesh) return null;
+        var p = new THREE.Vector3(mesh.position.x, mesh.position.y * 2, mesh.position.z).project(camera);
+        var r = container.getBoundingClientRect();
+        return { x: r.left + ((p.x + 1) / 2) * r.width, y: r.top + ((1 - p.y) / 2) * r.height };
+      },
     });
 
     // 10. Bucle de Renderizado
