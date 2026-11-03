@@ -8,6 +8,7 @@ import { Mapa3DView } from "../components/mapa3d/Mapa3DView";
 import { getPlanoEdificioUrl } from "../services/mapasService";
 import { AULAS_UBICACIONES } from "./Mapa";
 import { useTheme } from "../context/ThemeContext";
+import { esIdSvgValido, normalizarAulaParam } from "../utils/sanitize";
 import { Box, Layers } from "lucide-react-native";
 
 const formatearNombreEdificio = (id: string, nombreOriginal?: string) => {
@@ -54,7 +55,7 @@ const Edificio = ({ route }: any) => {
 
   const [modoVista, setModoVista] = useState<"2d" | "3d">("3d");
   const [aulaResaltada, setAulaResaltada] = useState<string | null>(
-    route?.params?.aulaResaltada || null
+    normalizarAulaParam(route?.params?.aulaResaltada)
   );
   const [planta, setPlanta] = useState<"baja" | "alta">(plantaInicial);
 
@@ -66,7 +67,7 @@ const Edificio = ({ route }: any) => {
 
   useEffect(() => {
     if (route?.params?.aulaResaltada !== undefined) {
-      const nuevaAula = route.params.aulaResaltada;
+      const nuevaAula = normalizarAulaParam(route.params.aulaResaltada);
       setAulaResaltada(nuevaAula);
 
       if (nuevaAula) {
@@ -96,10 +97,11 @@ const Edificio = ({ route }: any) => {
     const ubicacion = AULAS_UBICACIONES[claveUpper];
 
     if (ubicacion?.svgId) {
-      return ubicacion.svgId;
+      return esIdSvgValido(ubicacion.svgId) ? ubicacion.svgId : null;
     }
 
-    const limpia = aulaResaltada.toLowerCase().trim();
+    const limpia = aulaResaltada.toLowerCase().trim().replace(/[\s-]+/g, "_");
+    let candidato: string;
     if (
       limpia.startsWith("aula_") ||
       limpia.startsWith("edificio_") ||
@@ -113,9 +115,12 @@ const Edificio = ({ route }: any) => {
       limpia.startsWith("paqueteria_") ||
       limpia.startsWith("centro_")
     ) {
-      return limpia;
+      candidato = limpia;
+    } else {
+      candidato = `aula_${limpia}`;
     }
-    return `aula_${limpia}`;
+    // Lista blanca: cualquier ID que no sea [a-z0-9_] se descarta.
+    return esIdSvgValido(candidato) ? candidato : null;
   }, [aulaResaltada]);
 
   const processedBaja = useMemo(
@@ -228,7 +233,7 @@ const Edificio = ({ route }: any) => {
                     planta={planta}
                     selectedRoomId={targetSvgId}
                     isDarkMode={isDarkMode}
-                    onRoomClick={(id) => setAulaResaltada(id.toUpperCase())}
+                    onRoomClick={(id) => setAulaResaltada(normalizarAulaParam(id)?.toUpperCase() ?? null)}
                   />
                 ) : (
                   <MapaWebView
@@ -237,7 +242,7 @@ const Edificio = ({ route }: any) => {
                     svgAlta={processedAlta}
                     planta={planta}
                     targetSvgId={targetSvgId}
-                    onAulaClick={(id) => setAulaResaltada(id.toUpperCase())}
+                    onAulaClick={(id) => setAulaResaltada(normalizarAulaParam(id)?.toUpperCase() ?? null)}
                     isDarkMode={isDarkMode}
                   />
                 )}
@@ -365,4 +370,4 @@ const styles = StyleSheet.create({
   mapWrapper: { width: "100%", height: "100%", position: "relative" },
 });
 
-export default Edificio;
+export default Edificio;

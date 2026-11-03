@@ -1,6 +1,8 @@
+import { esIdSvgValido, jsonParaScript } from "../utils/sanitize";
+
 export const getInjectedJavaScript = (targetSvgId: string | null) => `
   (function() {
-    var activeTargetId = "${targetSvgId || ''}";
+    var activeTargetId = ${jsonParaScript(esIdSvgValido(targetSvgId) ? targetSvgId : "")};
 
     function applyHighlight() {
       if (!activeTargetId) return;

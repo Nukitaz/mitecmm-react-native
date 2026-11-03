@@ -1,7 +1,8 @@
-import React, { forwardRef } from "react";
+import React, { forwardRef, useEffect, useRef } from "react";
 import { View, StyleSheet, Platform } from "react-native";
 import { WebView } from "react-native-webview";
 import { getInjectedJavaScript } from "../../constants/scriptInject";
+import { esIdSvgValido } from "../../utils/sanitize";
 
 interface MapaWebViewProps {
   svgBaja: string | null | undefined;
@@ -14,6 +15,26 @@ interface MapaWebViewProps {
 
 export const MapaWebView = forwardRef<WebView, MapaWebViewProps>(
   ({ svgBaja, svgAlta, planta = "baja", targetSvgId, onAulaClick, isDarkMode }, ref) => {
+    const capaBajaRef = useRef<HTMLDivElement | null>(null);
+    const capaAltaRef = useRef<HTMLDivElement | null>(null);
+
+    // Web: el resaltado se aplica sobre el DOM ya renderizado (classList),
+    // nunca reescribiendo el HTML con texto que viene de la URL.
+    useEffect(() => {
+      if (Platform.OS !== "web") return;
+      const capas = [capaBajaRef.current, capaAltaRef.current];
+      capas.forEach((capa) =>
+        capa
+          ?.querySelectorAll(".resaltado-activo")
+          .forEach((el) => el.classList.remove("resaltado-activo"))
+      );
+      if (!esIdSvgValido(targetSvgId)) return;
+      const capaActiva = planta === "alta" ? capaAltaRef.current : capaBajaRef.current;
+      capaActiva?.querySelectorAll("[id]").forEach((el) => {
+        if (el.id.toLowerCase() === targetSvgId) el.classList.add("resaltado-activo");
+      });
+    }, [targetSvgId, planta, svgBaja, svgAlta, isDarkMode]);
+
     if (!svgBaja) return null;
 
     const bgColor = isDarkMode ? "#08080a" : "#f8fafc";
@@ -74,6 +95,7 @@ export const MapaWebView = forwardRef<WebView, MapaWebViewProps>(
       return (
         <div style={{ width: "100%", height: "100%", position: "relative", backgroundColor: bgColor, border: "none" }}>
           <div
+            ref={capaBajaRef}
             style={{
               position: "absolute",
               inset: 0,
@@ -81,18 +103,11 @@ export const MapaWebView = forwardRef<WebView, MapaWebViewProps>(
               transition: "opacity 0.35s ease",
               border: "none",
             }}
-            dangerouslySetInnerHTML={{
-              __html:
-                planta === "baja" && targetSvgId
-                  ? formattedBaja.replace(
-                      new RegExp(`id="${targetSvgId}"`, "gi"),
-                      `id="${targetSvgId}" class="resaltado-activo"`
-                    )
-                  : formattedBaja,
-            }}
+            dangerouslySetInnerHTML={{ __html: formattedBaja }}
           />
           {formattedAlta && (
             <div
+              ref={capaAltaRef}
               style={{
                 position: "absolute",
                 inset: 0,
@@ -102,15 +117,7 @@ export const MapaWebView = forwardRef<WebView, MapaWebViewProps>(
                 transform: planta === "alta" ? "translateY(0)" : "translateY(12px)",
                 border: "none",
               }}
-              dangerouslySetInnerHTML={{
-                __html:
-                  planta === "alta" && targetSvgId
-                    ? formattedAlta.replace(
-                        new RegExp(`id="${targetSvgId}"`, "gi"),
-                        `id="${targetSvgId}" class="resaltado-activo"`
-                      )
-                    : formattedAlta,
-              }}
+              dangerouslySetInnerHTML={{ __html: formattedAlta }}
             />
           )}
         </div>

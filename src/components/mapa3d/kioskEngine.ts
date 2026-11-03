@@ -4,6 +4,8 @@
  * billboards flotantes de locales, iconos naranjas de servicio y selección interactiva por Raycasting.
  */
 
+import { esIdSvgValido, jsonParaScript } from "../../utils/sanitize";
+
 export interface KioskEngineOptions {
   svgContent: string;
   isDarkMode: boolean;
@@ -13,7 +15,12 @@ export interface KioskEngineOptions {
 export function generateKioskHtml(options: KioskEngineOptions): string {
   const { svgContent, isDarkMode, selectedRoomId } = options;
 
-  const escapedSvg = JSON.stringify(svgContent || "");
+  // Ambos valores se serializan con escape seguro para <script>:
+  // ni "</script>" ni comillas pueden romper el bloque o inyectar código.
+  const escapedSvg = jsonParaScript(svgContent || "");
+  const escapedSelectedId = jsonParaScript(
+    esIdSvgValido(selectedRoomId) ? selectedRoomId : ""
+  );
 
   const bgColor = isDarkMode ? "#08080a" : "#f1f4f8";
   const slabColor = isDarkMode ? "#121620" : "#dbe0ea";
@@ -133,8 +140,8 @@ export function generateKioskHtml(options: KioskEngineOptions): string {
   <script>
     (function() {
       var rawSvg = ${escapedSvg};
-      var selectedTargetId = "${selectedRoomId || ''}";
-      var isDark = ${isDarkMode};
+      var selectedTargetId = ${escapedSelectedId};
+      var isDark = ${isDarkMode ? "true" : "false"};
 
       function sendToNative(data) {
         var msg = JSON.stringify(data);
