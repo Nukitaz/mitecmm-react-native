@@ -1095,6 +1095,10 @@
         return {
           aulas: Object.keys(roomMeshes).map(function (k) { return [r(roomMeshes[k].position.x), r(roomMeshes[k].position.z)]; }),
           fantasma: grupoFantasma ? grupoFantasma.children.map(function (c) { return [r(c.position.x), r(c.position.z)]; }) : null,
+          // Contorno del edificio de la planta activa en coordenadas 3D: [x0, z0, x1, z1]
+          contorno: planoActivo && planoActivo.contorno && normalizacion ? (function (c, n) {
+            return [r((c.minX - n.cx) * n.scale), r((c.minY - n.cy) * n.scale), r((c.maxX - n.cx) * n.scale), r((c.maxY - n.cy) * n.scale)];
+          })(planoActivo.contorno, normalizacion) : null,
         };
       },
       /** Posición en pantalla (px del iframe) del centro superior de un aula. */

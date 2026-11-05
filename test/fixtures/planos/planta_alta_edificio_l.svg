@@ -13,6 +13,7 @@
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
    xmlns:svg="http://www.w3.org/2000/svg">
+  <rect id="contorno_edificio" x="461.9" y="668.77" width="4266.04" height="3484.1" style="display:none" />
   <defs
      id="defs1">
     <clipPath

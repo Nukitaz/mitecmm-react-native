@@ -12,6 +12,13 @@ const planosConContorno = (url) => {
   if (url.includes("/Maps/planta_alta_edificio_a.svg")) return { contentType: "image/svg+xml", body: fs.readFileSync(path.join(SINTETICOS, "sintetico_alta_contorno.svg"), "utf8") };
   return undefined;
 };
+// Planos reales SIN el rectángulo contorno_edificio (para probar que entonces no se ofrece apilar).
+const planosSinContorno = (url) => {
+  const m = url.match(/\/Maps\/(planta_[a-z_]+\.svg)$/);
+  if (!m) return undefined;
+  const svg = fs.readFileSync(path.join(SINTETICOS, "planos", m[1]), "utf8");
+  return { contentType: "image/svg+xml", body: svg.replace(/<rect id="contorno_edificio"[^>]*\/>/, "") };
+};
 const enfocarLienzo = (p) => e.kiosco(p).evaluate(() => document.getElementById("canvas-container").focus());
 
 describe("mapa 3D", () => {
@@ -84,7 +91,7 @@ describe("mapa 3D", () => {
 
   // ------------------------------------------------------------ B9
   test("B9: botones de cámara y teclado", async () => {
-    const p = await e.abrir(navegador, `${sitio.base}/mapa/a?aulaResaltada=A1`, { espera: 5000, viewport: { width: 1200, height: 900 } });
+    const p = await e.abrir(navegador, `${sitio.base}/mapa/a?aulaResaltada=A1`, { regla: planosSinContorno, espera: 5000, viewport: { width: 1200, height: 900 } });
     assert.equal(await p.evaluate(() => document.querySelector("iframe").title), "Mapa 3D del Edificio A");
     assert.match(await e.kiosco(p).evaluate(() => document.getElementById("canvas-container").getAttribute("aria-label")), /Flechas/);
 
@@ -195,6 +202,30 @@ describe("mapa 3D", () => {
     }
     await p.close();
   });
+
+  // Bloque 13: los 12 planos reales traen contorno_edificio (alineado por los muros de ambas plantas).
+  for (const ed of ["a", "b", "em", "i", "l", "p"]) {
+    test(`B13: edificio ${ed.toUpperCase()}: planos reales con contorno, la otra planta cae dentro del edificio`, async () => {
+      const p = await e.abrir(navegador, `${sitio.base}/mapa/${ed}`, { espera: 5000 });
+      assert.equal(await e.kiosco(p).evaluate(() => document.getElementById("btn-plantas").hidden), false, "se ofrece apilar");
+      await e.clicEnKiosco(p, "btn-plantas");
+      assert.equal((await e.info3D(p)).plantasApiladasVisibles, true);
+      const pos = await e.kiosco(p).evaluate(() => window.__kiosco.posiciones());
+      assert.ok(pos.fantasma?.length > 0 && pos.aulas.length > 0);
+      // La otra planta cae dentro del contorno del edificio y lo ocupa en buena parte
+      // (una planta corrida o encogida falla aquí).
+      const [x0, z0, x1, z1] = pos.contorno;
+      const tol = 2;
+      for (const g of pos.fantasma) {
+        assert.ok(g[0] >= x0 - tol && g[0] <= x1 + tol && g[1] >= z0 - tol && g[1] <= z1 + tol, `fuera del contorno ${pos.contorno}: ${g}`);
+      }
+      const gx = pos.fantasma.map((g) => g[0]), gz = pos.fantasma.map((g) => g[1]);
+      assert.ok((Math.max(...gx) - Math.min(...gx)) > 0.5 * (x1 - x0), "la otra planta ocupa al menos la mitad del ancho");
+      // En EM la planta alta solo tiene espacios en una franja: el mínimo de fondo es bajo a propósito.
+      assert.ok((Math.max(...gz) - Math.min(...gz)) > 0.15 * (z1 - z0), "la otra planta ocupa al menos el 15 % del fondo");
+      await p.close();
+    });
+  }
 
   test("B9: con 'reducir movimiento' no hay animación continua", async () => {
     const p = await e.abrir(navegador, `${sitio.base}/mapa/a?aulaResaltada=A1`, { reducido: true, espera: 5000 });

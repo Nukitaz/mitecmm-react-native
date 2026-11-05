@@ -66,6 +66,8 @@ npm run lint        # ESLint (configuración de Expo)
 **Reglas de los planos SVG (Inkscape):**
 - Cada espacio es un `<rect>` con ID en minúsculas, dígitos y `_` (p. ej. `aula_a5`, `laboratorio_de_redes_lr`). Los servicios (`sanitario_`, `escalera_`, `bodega_`…) pueden ser `path` o grupos.
 - Para poder **ver ambas plantas apiladas**, agrega en *cada* plano del edificio un rectángulo con ID `contorno_edificio` que cubra el contorno exterior, en la misma posición física en las dos plantas (puede estar oculto). Sin él, el botón no aparece.
+  - Los 12 planos de `test/fixtures/planos` ya lo traen (hijo directo del `<svg>`, con `display:none`). Se calculó alineando los muros de ambas plantas (escala y desplazamiento); en el edificio L la planta alta está dibujada con otra proporción horizontal. Esos archivos son los que se suben al bucket `Maps` de Supabase Storage.
+  - Si se vuelve a dibujar un plano, hay que recalcular el rectángulo de *las dos* plantas de ese edificio.
 - El motor 3D se genera desde `src/components/mapa3d/runtime/`; después de editar esos archivos ejecuta `npm run vendor`.
 
 **Modo quiosco** (pantallas fijas en el campus):

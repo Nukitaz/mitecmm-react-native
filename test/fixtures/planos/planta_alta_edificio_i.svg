@@ -14,6 +14,7 @@
    xmlns:xlink="http://www.w3.org/1999/xlink"
    xmlns="http://www.w3.org/2000/svg"
    xmlns:svg="http://www.w3.org/2000/svg">
+  <rect id="contorno_edificio" x="161.69" y="481.09" width="3271.95" height="1475.76" style="display:none" />
   <defs
      id="defs1">
     <clipPath
