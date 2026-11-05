@@ -419,8 +419,27 @@
       m.scale.set(Math.max(w, 0.05), Math.max(h, 0.05), Math.max(d, 0.05));
       m.position.set(x, y + h / 2, z);
       m.raycast = function () {};
+      m.userData.materialOriginal = material;
       grupo.add(m);
       return m;
+    }
+
+    /**
+     * Resalta (o restaura) un espacio. Las aulas cambian el material de su caja; escaleras y
+     * baños pintan su forma propia y su caja sigue invisible (si no, taparía la forma).
+     * La loza (inodoros y lavabo) conserva su color para que se sigan distinguiendo.
+     */
+    function pintarSeleccion(mesh, seleccionado) {
+      var forma = mesh.userData.forma;
+      if (!forma) {
+        mesh.material = seleccionado ? materials.roomSelected : mesh.userData.defaultMaterial;
+        return;
+      }
+      forma.traverse(function (o) {
+        var original = o.userData.materialOriginal;
+        if (!original || original === matLoza) return;
+        o.material = seleccionado ? materials.roomSelected : original;
+      });
     }
 
     /**
@@ -668,6 +687,7 @@
           roomMesh.userData = { id: room.id, name: room.id, defaultMaterial: defaultMat, isRoom: true };
 
           if (forma) {
+            roomMesh.userData.forma = forma;
             forma.position.set(worldX, 0, worldZ);
             forma.rotation.y = -room.angle;
             forma.traverse(function (o) { o.castShadow = true; o.receiveShadow = true; });
@@ -944,9 +964,7 @@
     }
 
     function limpiarSeleccion() {
-      if (currentSelectedMesh) {
-        currentSelectedMesh.material = currentSelectedMesh.userData.defaultMaterial;
-      }
+      if (currentSelectedMesh) pintarSeleccion(currentSelectedMesh, false);
       currentSelectedMesh = null;
       pedirRender();
     }
@@ -958,11 +976,11 @@
       if (!targetMesh) return;
 
       if (currentSelectedMesh && currentSelectedMesh !== targetMesh) {
-        currentSelectedMesh.material = currentSelectedMesh.userData.defaultMaterial;
+        pintarSeleccion(currentSelectedMesh, false);
       }
 
       currentSelectedMesh = targetMesh;
-      currentSelectedMesh.material = materials.roomSelected;
+      pintarSeleccion(currentSelectedMesh, true);
 
       if (animateCamera !== false) {
         moverCamaraA(new THREE.Vector3(targetMesh.position.x, 0, targetMesh.position.z));
@@ -1260,6 +1278,20 @@
       },
       aulas: function () {
         return Object.keys(roomMeshes);
+      },
+      /** Cómo se ve un espacio: si su caja es visible y cuántas piezas de su forma propia están resaltadas. */
+      aspecto: function (id) {
+        var mesh = roomMeshes[String(id).toLowerCase()];
+        if (!mesh) return null;
+        var piezas = 0, resaltadas = 0;
+        if (mesh.userData.forma) {
+          mesh.userData.forma.traverse(function (o) {
+            if (!o.isMesh) return;
+            piezas++;
+            if (o.material === materials.roomSelected) resaltadas++;
+          });
+        }
+        return { cajaVisible: mesh.material.visible !== false && mesh.material !== matInvisible, piezas: piezas, resaltadas: resaltadas };
       },
       /** Métricas de rendimiento y memoria gráfica. */
       info: function () {

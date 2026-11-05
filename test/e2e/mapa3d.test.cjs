@@ -275,6 +275,27 @@ describe("mapa 3D", () => {
     await p.close();
   });
 
+  test("B16: al seleccionar escalera o baño se pinta su forma, sin cubo naranja encima", async () => {
+    const p = await e.abrir(navegador, `${sitio.base}/mapa/l`, { espera: 5000, viewport: { width: 1200, height: 900 } });
+    const ids = (await e.kiosco(p).evaluate(() => window.__kiosco.aulas()))
+      .filter((id) => id.startsWith("escalera_") || id.startsWith("sanitario_"));
+    assert.ok(ids.length >= 2, "el edificio L tiene escalera y baño");
+    const aspecto = (id) => e.kiosco(p).evaluate((i) => window.__kiosco.aspecto(i), id);
+    for (const id of ids) {
+      await e.clicEnAula(p, id);
+      await e.espera(1200);
+      assert.equal(await e.seleccion(p), id);
+      const sel = await aspecto(id);
+      assert.equal(sel.cajaVisible, false, `${id}: la caja sigue invisible al seleccionarla`);
+      assert.ok(sel.resaltadas > 0, `${id}: su forma propia se resalta`);
+      await e.pulsar(p, "quitar");
+      await e.espera(600);
+      const libre = await aspecto(id);
+      assert.equal(libre.resaltadas, 0, `${id}: al quitar la selección recupera sus colores`);
+    }
+    await p.close();
+  });
+
   test("B9: con 'reducir movimiento' no hay animación continua", async () => {
     const p = await e.abrir(navegador, `${sitio.base}/mapa/a?aulaResaltada=A1`, { reducido: true, espera: 5000 });
     const a = await e.info3D(p);
