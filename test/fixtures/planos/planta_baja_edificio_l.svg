@@ -17,6 +17,9 @@
    xmlns="http://www.w3.org/2000/svg"
    xmlns:svg="http://www.w3.org/2000/svg">
   <rect id="contorno_edificio" x="0.0" y="474.13" width="4581.81" height="3503.86" style="display:none" />
+  <rect id="escalera_1" x="3770" y="1950" width="790" height="510" style="display:none" />
+  <rect id="sanitario_mujeres" x="3294" y="2976" width="466" height="802" style="display:none" />
+  <rect id="sanitario_hombres" x="3788" y="2961" width="476" height="817" style="display:none" />
   <defs
      id="defs1">
     <clipPath

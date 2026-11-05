@@ -397,6 +397,8 @@
 
     // 7. Medición de un plano SVG (planta activa y, si se apilan, la otra planta)
     var ALTURA_AULA = 6.0;
+    /** Separación vertical entre plantas en la vista apilada (deja ver la de abajo). */
+    var SEPARACION_PLANTAS = 46;
     // Una sola caja unitaria y su contorno para TODAS las aulas (se escalan por aula).
     var cajaUnitaria = new THREE.BoxGeometry(1, 1, 1);
     var contornoUnitario = new THREE.EdgesGeometry(cajaUnitaria);
@@ -633,11 +635,37 @@
     }
     if (fallido) return;
 
-    // 7b. Otra planta apilada (semitransparente). Los planos de cada planta tienen su
-    // propio sistema de coordenadas: solo se alinean si AMBOS incluyen el rectángulo de
-    // referencia "contorno_edificio" con el contorno del edificio. Sin él, no se ofrece.
+    // 7b. Otra planta apilada: un piso sólido (losa, pasillo, espacios e iconos) separado
+    // en vertical, como un directorio de plantas visto de lado. Los planos de cada planta
+    // tienen su propio sistema de coordenadas: solo se alinean si AMBOS incluyen el
+    // rectángulo de referencia "contorno_edificio". Sin él, no se ofrece.
     // Sin "= null": se asigna durante buildFloorFromSvg, que se ejecuta antes de esta línea.
     var grupoFantasma;
+    var vistaPrevia = null; // cámara antes de apilar (se restaura al ocultar)
+
+    /** Etiqueta "Planta baja/alta" junto a la losa de cada piso. */
+    function crearEtiquetaPlanta(texto) {
+      var textura = texturaDe("planta|" + texto, function () {
+        var canvas = document.createElement("canvas");
+        canvas.width = 384;
+        canvas.height = 96;
+        var ctx = canvas.getContext("2d");
+        ctx.fillStyle = isDark ? "#1e293b" : "#0f172a";
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(4, 4, 376, 88, 24); else ctx.rect(4, 4, 376, 88);
+        ctx.fill();
+        ctx.fillStyle = "#ffffff";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(fuenteQueCabe(ctx, texto, 46, 20, 340), 192, 50);
+        return canvas;
+      });
+      var sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: textura, depthTest: false }));
+      sprite.scale.set(20, 5, 1);
+      sprite.renderOrder = 20;
+      sprite.raycast = function () {};
+      return sprite;
+    }
 
     function construirPlantaFantasma(svgTexto, esSuperior) {
       if (!planoActivo || !planoActivo.contorno || !normalizacion) return false;
@@ -647,30 +675,59 @@
       var kx = (a.maxX - a.minX) / (b.maxX - b.minX);
       var ky = (a.maxY - a.minY) / (b.maxY - b.minY);
       var n = normalizacion;
+      /** Punto de la otra planta -> mundo 3D (alineado por el contorno del edificio). */
+      function aMundo(x, y) {
+        return { x: (a.minX + (x - b.minX) * kx - n.cx) * n.scale, z: (a.minY + (y - b.minY) * ky - n.cy) * n.scale };
+      }
 
-      var color = isDark ? 0xa78bfa : 0x7c3aed;
-      var matLinea = new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: 0.6, depthTest: false });
-      var matCaja = new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 0.1, depthWrite: false, depthTest: false });
-      var alturaPiso = esSuperior ? ALTURA_AULA + 6 : -ALTURA_AULA - 4;
-      var alto = 4;
-
+      var nivel = esSuperior ? SEPARACION_PLANTAS : -SEPARACION_PLANTAS;
       grupoFantasma = new THREE.Group();
+      grupoFantasma.position.y = nivel;
+
+      // Losa y pasillo del tamaño de la otra planta (mismos márgenes que la activa).
+      var p0 = aMundo(otro.limites.minX, otro.limites.minY), p1 = aMundo(otro.limites.maxX, otro.limites.maxY);
+      var losaW = Math.abs(p1.x - p0.x) + 18, losaD = Math.abs(p1.z - p0.z) + 18;
+      var cx = (p0.x + p1.x) / 2, cz = (p0.z + p1.z) / 2;
+      var losa = new THREE.Mesh(new THREE.BoxGeometry(losaW, 2, losaD), materials.slab);
+      losa.position.set(cx, -1, cz);
+      var pasillo = new THREE.Mesh(new THREE.PlaneGeometry(losaW - 4, losaD - 4), materials.corridor);
+      pasillo.rotation.x = -Math.PI / 2;
+      pasillo.position.set(cx, 0.04, cz);
+      [losa, pasillo].forEach(function (o) { o.raycast = function () {}; grupoFantasma.add(o); });
+
+      var materialEspacio = [materials.roomWall, materials.roomWall, materials.roomTop, materials.roomWall, materials.roomWall, materials.roomWall];
       otro.rooms.forEach(function (r) {
-        // Coordenadas de la otra planta -> coordenadas de la planta activa (por el contorno)
-        var x = a.minX + (r.cx - b.minX) * kx;
-        var y = a.minY + (r.cy - b.minY) * ky;
-        var caja = new THREE.Mesh(cajaUnitaria, matCaja);
-        caja.scale.set(r.w * kx * n.scale, alto, r.h * ky * n.scale);
-        caja.position.set((x - n.cx) * n.scale, alturaPiso + alto / 2, (y - n.cy) * n.scale);
+        var p = aMundo(r.cx, r.cy);
+        var caja = new THREE.Mesh(cajaUnitaria, materialEspacio);
+        caja.scale.set(r.w * kx * n.scale, ALTURA_AULA, r.h * ky * n.scale);
+        caja.position.set(p.x, ALTURA_AULA / 2, p.z);
         caja.rotation.y = -r.angle;
-        caja.renderOrder = 10;
+        caja.userData = { id: r.id, esEspacio: true };
         caja.raycast = function () {};
-        var lineas = new THREE.LineSegments(contornoUnitario, matLinea);
-        lineas.renderOrder = 11;
+        var lineas = new THREE.LineSegments(contornoUnitario, materials.edge);
         lineas.raycast = function () {};
         caja.add(lineas);
         grupoFantasma.add(caja);
+
+        // Baños, escaleras y demás servicios se ven también en la otra planta.
+        var tipo = Etiquetas.tipoServicio(r.id);
+        var et = tipo ? null : Etiquetas.etiqueta(r.id);
+        var cartel = tipo ? createServiceBillboard(tipo) : createClassroomBillboard(et.codigo, et.categoria);
+        cartel.position.set(p.x, ALTURA_AULA + 4.2, p.z);
+        cartel.raycast = function () {};
+        grupoFantasma.add(cartel);
       });
+
+      // Nombre de cada planta, a la izquierda de su losa.
+      var nombreOtra = esSuperior ? "Planta alta" : "Planta baja";
+      var nombreActiva = esSuperior ? "Planta baja" : "Planta alta";
+      var etiquetaOtra = crearEtiquetaPlanta(nombreOtra);
+      etiquetaOtra.position.set(cx - losaW / 2 - 15, 2, cz);
+      grupoFantasma.add(etiquetaOtra);
+      var etiquetaActiva = crearEtiquetaPlanta(nombreActiva + " (actual)");
+      etiquetaActiva.position.set(-((planoActivo.limites.maxX - planoActivo.limites.minX) * n.scale + 18) / 2 - 15, 2 - nivel, 0);
+      grupoFantasma.add(etiquetaActiva);
+
       grupoFantasma.visible = false;
       scene.add(grupoFantasma);
       return true;
@@ -678,10 +735,34 @@
 
     function alternarPlantas(mostrar) {
       if (!grupoFantasma) return;
+      var antes = grupoFantasma.visible;
       grupoFantasma.visible = typeof mostrar === "boolean" ? mostrar : !grupoFantasma.visible;
       var btn = document.getElementById("btn-plantas");
       btn.setAttribute("aria-pressed", grupoFantasma.visible ? "true" : "false");
       btn.setAttribute("aria-label", grupoFantasma.visible ? "Ocultar la otra planta" : "Ver ambas plantas");
+      if (grupoFantasma.visible && !antes) {
+        // Vista de lado que encuadra ambas plantas (como un directorio de pisos).
+        vistaPrevia = { radius: spherical.radius, theta: spherical.theta, phi: spherical.phi, target: cameraTarget.clone() };
+        spherical.radius = 245;
+        spherical.phi = 1.17;
+        targetCameraLerp = null;
+        cameraTarget.set(0, grupoFantasma.position.y / 2, 0);
+        scene.fog.near = 260;
+        scene.fog.far = 620;
+        updateCameraPosition();
+      } else if (!grupoFantasma.visible && antes) {
+        scene.fog.near = 150;
+        scene.fog.far = 480;
+        if (vistaPrevia) {
+          spherical.radius = vistaPrevia.radius;
+          spherical.theta = vistaPrevia.theta;
+          spherical.phi = vistaPrevia.phi;
+          cameraTarget.copy(vistaPrevia.target);
+          vistaPrevia = null;
+        }
+        targetCameraLerp = null;
+        updateCameraPosition();
+      }
       pedirRender();
     }
 
@@ -1094,7 +1175,10 @@
         var r = function (v) { return Math.round(v * 10) / 10; };
         return {
           aulas: Object.keys(roomMeshes).map(function (k) { return [r(roomMeshes[k].position.x), r(roomMeshes[k].position.z)]; }),
-          fantasma: grupoFantasma ? grupoFantasma.children.map(function (c) { return [r(c.position.x), r(c.position.z)]; }) : null,
+          fantasma: grupoFantasma ? grupoFantasma.children.filter(function (c) { return c.userData.esEspacio; }).map(function (c) { return [r(c.position.x), r(c.position.z)]; }) : null,
+          // Espacios de la otra planta (IDs) y su altura en el mundo (separación vertical).
+          fantasmaIds: grupoFantasma ? grupoFantasma.children.filter(function (c) { return c.userData.esEspacio; }).map(function (c) { return c.userData.id; }) : null,
+          nivelOtraPlanta: grupoFantasma ? grupoFantasma.position.y : null,
           // Contorno del edificio de la planta activa en coordenadas 3D: [x0, z0, x1, z1]
           contorno: planoActivo && planoActivo.contorno && normalizacion ? (function (c, n) {
             return [r((c.minX - n.cx) * n.scale), r((c.minY - n.cy) * n.scale), r((c.maxX - n.cx) * n.scale), r((c.maxY - n.cy) * n.scale)];

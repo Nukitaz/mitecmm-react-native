@@ -227,6 +227,41 @@ describe("mapa 3D", () => {
     });
   }
 
+  // Bloque 14: escaleras y baños en ambas plantas; vista apilada sólida, de lado.
+  for (const ed of ["a", "b", "em", "i", "l", "p"]) {
+    test(`B14: edificio ${ed.toUpperCase()}: escaleras y baños en ambas plantas`, async () => {
+      const p = await e.abrir(navegador, `${sitio.base}/mapa/${ed}`, { espera: 5000 });
+      const activa = await e.kiosco(p).evaluate(() => window.__kiosco.aulas());
+      assert.ok(activa.some((id) => id.startsWith("escalera_")), "la planta activa tiene escalera");
+      assert.ok(activa.some((id) => id.startsWith("sanitario_")), "la planta activa tiene baño");
+      const pos = await e.kiosco(p).evaluate(() => window.__kiosco.posiciones());
+      assert.ok(pos.fantasmaIds.some((id) => id.startsWith("escalera_")), "la otra planta tiene escalera");
+      assert.ok(pos.fantasmaIds.some((id) => id.startsWith("sanitario_")), "la otra planta tiene baño");
+      await p.close();
+    });
+  }
+
+  test("B14: la vista apilada separa las plantas, gira la cámara de lado y la restaura", async () => {
+    const p = await e.abrir(navegador, `${sitio.base}/mapa/a`, { espera: 5000 });
+    const antes = await e.info3D(p);
+    await e.clicEnKiosco(p, "btn-plantas");
+    const apilada = await e.info3D(p);
+    assert.equal(apilada.plantasApiladasVisibles, true);
+    assert.ok(apilada.radio > antes.radio, "la cámara se aleja para encuadrar ambas plantas");
+    // Desde planta baja, la otra (alta) queda arriba y bien separada.
+    assert.ok((await e.kiosco(p).evaluate(() => window.__kiosco.posiciones())).nivelOtraPlanta >= 30);
+    await e.clicEnKiosco(p, "btn-plantas");
+    const despues = await e.info3D(p);
+    assert.equal(despues.plantasApiladasVisibles, false);
+    assert.equal(despues.radio, antes.radio, "al ocultarla vuelve la vista anterior");
+
+    // Desde planta alta, la otra planta queda abajo.
+    await e.pulsar(p, "PA");
+    await e.espera(5000);
+    assert.ok((await e.kiosco(p).evaluate(() => window.__kiosco.posiciones())).nivelOtraPlanta <= -30);
+    await p.close();
+  });
+
   test("B9: con 'reducir movimiento' no hay animación continua", async () => {
     const p = await e.abrir(navegador, `${sitio.base}/mapa/a?aulaResaltada=A1`, { reducido: true, espera: 5000 });
     const a = await e.info3D(p);

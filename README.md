@@ -68,6 +68,8 @@ npm run lint        # ESLint (configuración de Expo)
 - Para poder **ver ambas plantas apiladas**, agrega en *cada* plano del edificio un rectángulo con ID `contorno_edificio` que cubra el contorno exterior, en la misma posición física en las dos plantas (puede estar oculto). Sin él, el botón no aparece.
   - Los 12 planos de `test/fixtures/planos` ya lo traen (hijo directo del `<svg>`, con `display:none`). Se calculó alineando los muros de ambas plantas (escala y desplazamiento); en el edificio L la planta alta está dibujada con otra proporción horizontal. Esos archivos son los que se suben al bucket `Maps` de Supabase Storage.
   - Si se vuelve a dibujar un plano, hay que recalcular el rectángulo de *las dos* plantas de ese edificio.
+  - La vista apilada muestra la otra planta como un piso sólido (losa, espacios e iconos), separado en vertical y visto de lado; al ocultarla vuelve la vista anterior.
+- **Escaleras y baños** también son espacios: cada uno necesita su `<rect>` (puede estar oculto) con ID `escalera_…` o `sanitario_…` (p. ej. `escalera_1`, `sanitario_mujeres`). Solo el dibujo o la etiqueta de texto no basta. Los 12 planos de `test/fixtures/planos` ya los traen en ambas plantas.
 - El motor 3D se genera desde `src/components/mapa3d/runtime/`; después de editar esos archivos ejecuta `npm run vendor`.
 
 **Modo quiosco** (pantallas fijas en el campus):
