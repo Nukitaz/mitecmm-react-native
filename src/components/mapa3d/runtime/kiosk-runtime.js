@@ -405,6 +405,96 @@
     var planoActivo = null;
     var normalizacion = null; // { cx, cy, scale }: coordenadas del SVG -> mundo 3D
 
+    // 7a. Formas propias de escaleras y baños (en lugar de una caja).
+    var matEscalon = [materials.roomWall, materials.roomWall, materials.roomTop, materials.roomWall, materials.roomWall, materials.roomWall];
+    var matPisoBano = new THREE.MeshStandardMaterial({ color: new THREE.Color(isDark ? "#1f3b4d" : "#dbeafe"), roughness: 0.4, metalness: 0.05 });
+    var matMuroBano = new THREE.MeshStandardMaterial({ color: new THREE.Color(isDark ? "#3f5873" : "#a5b4c8"), roughness: 0.6, metalness: 0.05 });
+    var matLoza = new THREE.MeshStandardMaterial({ color: new THREE.Color("#f8fafc"), roughness: 0.25, metalness: 0.05 });
+    /** Material invisible (sigue recibiendo toques) para la zona seleccionable de una forma propia. */
+    var matInvisible = new THREE.MeshBasicMaterial({ visible: false });
+
+    /** Caja (geometría compartida) en coordenadas locales de la forma. */
+    function bloque(grupo, material, x, y, z, w, h, d) {
+      var m = new THREE.Mesh(cajaUnitaria, material);
+      m.scale.set(Math.max(w, 0.05), Math.max(h, 0.05), Math.max(d, 0.05));
+      m.position.set(x, y + h / 2, z);
+      m.raycast = function () {};
+      grupo.add(m);
+      return m;
+    }
+
+    /**
+     * Escalera en U (dos tramos y un descanso), como en los planos. El tramo corre a lo
+     * largo del lado mayor; la primera mitad sube hasta el descanso y la otra regresa.
+     */
+    function formaEscalera(W, D) {
+      var g = new THREE.Group();
+      var largo = Math.max(W, D), ancho = Math.min(W, D);
+      var tramo = new THREE.Group(); // se construye con el largo en X y se gira si hace falta
+      var H = ALTURA_AULA;
+      var descanso = Math.min(largo * 0.22, ancho * 0.9);
+      var recorrido = largo - descanso;
+      var n = 9;
+      var paso = recorrido / n;
+      var anchoTramo = ancho / 2 - 0.25;
+      var x0 = -largo / 2;
+      for (var i = 0; i < n; i++) {
+        // Tramo 1 (z negativo): sube de 0 a H/2 hacia el descanso.
+        bloque(tramo, matEscalon, x0 + paso * (i + 0.5), 0, -ancho / 4, paso, (H / 2) * (i + 1) / n, anchoTramo);
+        // Tramo 2 (z positivo): sube de H/2 a H regresando desde el descanso.
+        bloque(tramo, matEscalon, x0 + recorrido - paso * (i + 0.5), 0, ancho / 4, paso, H / 2 + (H / 2) * (i + 1) / n, anchoTramo);
+      }
+      bloque(tramo, matEscalon, largo / 2 - descanso / 2, 0, 0, descanso, H / 2, ancho);
+      // Muro central entre tramos
+      bloque(tramo, matMuroBano, x0 + recorrido / 2, 0, 0, recorrido, H * 0.75, 0.3);
+      if (D > W) tramo.rotation.y = Math.PI / 2;
+      g.add(tramo);
+      return g;
+    }
+
+    /** Baño: piso de azulejo, muros bajos abiertos, cubículos con inodoro y lavabo corrido. */
+    function formaBano(W, D) {
+      var g = new THREE.Group();
+      var largo = Math.max(W, D), ancho = Math.min(W, D);
+      var c = new THREE.Group(); // largo en X
+      var hMuro = ALTURA_AULA * 0.7, e = 0.35;
+      bloque(c, matPisoBano, 0, 0, 0, largo, 0.15, ancho);
+      // Perímetro con un hueco de puerta al centro de un lado largo
+      var puerta = Math.min(2.6, largo * 0.3);
+      bloque(c, matMuroBano, 0, 0, -ancho / 2 + e / 2, largo, hMuro, e);
+      bloque(c, matMuroBano, -(largo + puerta) / 4, 0, ancho / 2 - e / 2, (largo - puerta) / 2, hMuro, e);
+      bloque(c, matMuroBano, (largo + puerta) / 4, 0, ancho / 2 - e / 2, (largo - puerta) / 2, hMuro, e);
+      bloque(c, matMuroBano, -largo / 2 + e / 2, 0, 0, e, hMuro, ancho);
+      bloque(c, matMuroBano, largo / 2 - e / 2, 0, 0, e, hMuro, ancho);
+      // Cubículos a lo largo del muro del fondo
+      var fondoCub = Math.min(ancho * 0.5, 4.2);
+      var nCub = Math.max(1, Math.min(5, Math.floor((largo - 2 * e) / 2.8)));
+      var anchoCub = (largo - 2 * e) / nCub;
+      var zCub = -ancho / 2 + e + fondoCub / 2;
+      for (var i = 0; i < nCub; i++) {
+        var xc = -largo / 2 + e + anchoCub * (i + 0.5);
+        if (i > 0) bloque(c, matMuroBano, xc - anchoCub / 2, 0, zCub, 0.18, hMuro * 0.7, fondoCub);
+        // Inodoro: taza y tanque
+        var t = Math.min(0.9, anchoCub * 0.35);
+        bloque(c, matLoza, xc, 0, zCub - fondoCub / 2 + t * 1.1, t, 0.9, t * 1.3);
+        bloque(c, matLoza, xc, 0, zCub - fondoCub / 2 + t * 0.35, t * 1.1, 1.6, t * 0.5);
+      }
+      // Lavabo corrido junto a la entrada (si cabe)
+      if (ancho - fondoCub > 3) {
+        bloque(c, matLoza, -largo / 4, 0, ancho / 2 - e - 0.6, Math.min(largo * 0.4, 5), 1.7, 1.0);
+      }
+      if (D > W) c.rotation.y = Math.PI / 2;
+      g.add(c);
+      return g;
+    }
+
+    /** Forma propia para un espacio (escalera o baño), o null si se dibuja como caja. */
+    function formaPropia(tipo, W, D) {
+      if (tipo === "stairs") return formaEscalera(W, D);
+      if (tipo === "restroom") return formaBano(W, D);
+      return null;
+    }
+
     /**
      * Interpreta y mide un plano: espacios (centro, tamaño y rotación reales vía getCTM),
      * límites, y el contorno de referencia "contorno_edificio" si existe.
@@ -555,7 +645,11 @@
 
           var worldX = (room.cx - buildingCenterX) * scale;
           var worldZ = (room.cy - buildingCenterY) * scale;
-          var defaultMat = [
+          var serviceType = Etiquetas.tipoServicio(room.id);
+          // Escaleras y baños tienen forma propia; su caja queda invisible (solo para tocarla
+          // y para resaltarla al seleccionarla).
+          var forma = formaPropia(serviceType, boxW, boxD);
+          var defaultMat = forma ? matInvisible : [
             materials.roomWall,
             materials.roomWall,
             materials.roomTop,
@@ -569,22 +663,28 @@
           roomMesh.position.set(worldX, roomExtrudeHeight / 2, worldZ);
           // SVG (x, y hacia abajo) -> mundo (x, z): una rotación θ del plano equivale a rotation.y = -θ
           roomMesh.rotation.y = -room.angle;
-          roomMesh.castShadow = true;
-          roomMesh.receiveShadow = true;
+          roomMesh.castShadow = !forma;
+          roomMesh.receiveShadow = !forma;
           roomMesh.userData = { id: room.id, name: room.id, defaultMaterial: defaultMat, isRoom: true };
 
-          var edgeLines = new THREE.LineSegments(contornoUnitario, materials.edge);
-          // El contorno es decorativo: no participa en la selección (escalado, su umbral
-          // de raycast crecería con el aula y "taparía" los clics).
-          edgeLines.raycast = function () {};
-          roomMesh.add(edgeLines);
+          if (forma) {
+            forma.position.set(worldX, 0, worldZ);
+            forma.rotation.y = -room.angle;
+            forma.traverse(function (o) { o.castShadow = true; o.receiveShadow = true; });
+            floorGroup.add(forma);
+          } else {
+            var edgeLines = new THREE.LineSegments(contornoUnitario, materials.edge);
+            // El contorno es decorativo: no participa en la selección (escalado, su umbral
+            // de raycast crecería con el aula y "taparía" los clics).
+            edgeLines.raycast = function () {};
+            roomMesh.add(edgeLines);
+          }
 
           floorGroup.add(roomMesh);
           roomMeshes[room.id.toLowerCase()] = roomMesh;
           interactiveObjects.push(roomMesh);
 
           // D. Billboard
-          var serviceType = Etiquetas.tipoServicio(room.id);
           var billboardSprite = null;
 
           if (serviceType) {
@@ -698,19 +798,27 @@
       var materialEspacio = [materials.roomWall, materials.roomWall, materials.roomTop, materials.roomWall, materials.roomWall, materials.roomWall];
       otro.rooms.forEach(function (r) {
         var p = aMundo(r.cx, r.cy);
-        var caja = new THREE.Mesh(cajaUnitaria, materialEspacio);
-        caja.scale.set(r.w * kx * n.scale, ALTURA_AULA, r.h * ky * n.scale);
+        var tipo = Etiquetas.tipoServicio(r.id);
+        var w = r.w * kx * n.scale, d = r.h * ky * n.scale;
+        var forma = formaPropia(tipo, w, d);
+        var caja = new THREE.Mesh(cajaUnitaria, forma ? matInvisible : materialEspacio);
+        caja.scale.set(w, ALTURA_AULA, d);
         caja.position.set(p.x, ALTURA_AULA / 2, p.z);
         caja.rotation.y = -r.angle;
         caja.userData = { id: r.id, esEspacio: true };
         caja.raycast = function () {};
-        var lineas = new THREE.LineSegments(contornoUnitario, materials.edge);
-        lineas.raycast = function () {};
-        caja.add(lineas);
+        if (forma) {
+          forma.position.set(p.x, 0, p.z);
+          forma.rotation.y = -r.angle;
+          grupoFantasma.add(forma);
+        } else {
+          var lineas = new THREE.LineSegments(contornoUnitario, materials.edge);
+          lineas.raycast = function () {};
+          caja.add(lineas);
+        }
         grupoFantasma.add(caja);
 
         // Baños, escaleras y demás servicios se ven también en la otra planta.
-        var tipo = Etiquetas.tipoServicio(r.id);
         var et = tipo ? null : Etiquetas.etiqueta(r.id);
         var cartel = tipo ? createServiceBillboard(tipo) : createClassroomBillboard(et.codigo, et.categoria);
         cartel.position.set(p.x, ALTURA_AULA + 4.2, p.z);

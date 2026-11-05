@@ -262,6 +262,19 @@ describe("mapa 3D", () => {
     await p.close();
   });
 
+  // Bloque 15: escaleras y baños con forma propia (su caja es invisible pero se puede tocar).
+  test("B15: tocar un baño o la escalera (forma propia) los selecciona", async () => {
+    const p = await e.abrir(navegador, `${sitio.base}/mapa/a`, { espera: 5000, viewport: { width: 1200, height: 900 } });
+    for (const id of ["sanitario_hombres", "escalera_1"]) {
+      await e.clicEnAula(p, id);
+      await e.espera(1500);
+      assert.equal(await e.seleccion(p), id);
+      await e.pulsar(p, "quitar");
+      await e.espera(600);
+    }
+    await p.close();
+  });
+
   test("B9: con 'reducir movimiento' no hay animación continua", async () => {
     const p = await e.abrir(navegador, `${sitio.base}/mapa/a?aulaResaltada=A1`, { reducido: true, espera: 5000 });
     const a = await e.info3D(p);
