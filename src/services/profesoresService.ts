@@ -26,13 +26,13 @@ export async function obtenerProfesores(busqueda: string = ""): Promise<HorarioD
   try {
     const q = busqueda.trim();
 
-    // Consulta principal con triple relación (Clases -> Docentes -> Carreras)
+    // Consulta principal con triple relación (Horarios -> Profesores -> Carreras)
     if (!q) {
       const { data, error } = await supabase
-        .from("clases")
+        .from("horarios")
         .select(`
           id, materia, grupo, dia, hora_inicio, hora_fin, aula,
-          docentes (
+          profesores (
             nombre,
             carreras (nombre)
           )
@@ -44,15 +44,16 @@ export async function obtenerProfesores(busqueda: string = ""): Promise<HorarioD
 
     // Consulta con búsqueda por texto
     const { data, error } = await supabase
-      .from("clases")
+      .from("horarios")
       .select(`
         id, materia, grupo, dia, hora_inicio, hora_fin, aula,
-        docentes!inner (
+        profesores!inner (
           nombre,
           carreras (nombre)
         )
       `)
-      .or(`materia.ilike.%${q}%,aula.ilike.%${q}%,grupo.ilike.%${q}%,docentes.nombre.ilike.%${q}%`);
+      // Nota: Cambiamos 'docentes.nombre' a 'profesores.nombre' para que coincida con la nueva tabla
+      .or(`materia.ilike.%${q}%,aula.ilike.%${q}%,grupo.ilike.%${q}%,profesores.nombre.ilike.%${q}%`);
 
     if (error) {
       console.error("Error en consulta relacional:", error.message);
@@ -66,13 +67,13 @@ export async function obtenerProfesores(busqueda: string = ""): Promise<HorarioD
   }
 }
 
-// Aplana los datos anidados para que la tarjeta de React Native los pueda leer
+// Aplana los datos anidados leyendo desde 'profesores' en lugar de 'docentes'
 function formatearDatos(data: any[] | null): HorarioDocente[] {
   if (!data) return [];
   return data.map((item) => ({
     id: item.id.toString(),
-    docente: item.docentes?.nombre || "Sin Asignar",
-    carrera: item.docentes?.carreras?.nombre || "SIN CARRERA",
+    docente: item.profesores?.nombre || "Sin Asignar",
+    carrera: item.profesores?.carreras?.nombre || "SIN CARRERA",
     materia: item.materia,
     grupo: item.grupo || "",
     dia: item.dia,
