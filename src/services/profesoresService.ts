@@ -1,4 +1,5 @@
 import { supabase } from "../integrations/supabase/client";
+import { log } from "../utils/log";
 
 export interface HorarioDocente {
   id: string;
@@ -12,57 +13,75 @@ export interface HorarioDocente {
   carrera?: string;
 }
 
+/** Solo las columnas que usa la interfaz (no se exponen campos internos). */
+const COLUMNAS = `
+  id, materia, grupo, dia, hora_inicio, hora_fin, aula,
+  profesores (
+    nombre,
+    carreras (nombre)
+  )
+`;
+
+/** Igual que COLUMNAS, pero exige que el horario tenga profesor (para filtrar por su nombre). */
+const COLUMNAS_CON_PROFESOR = `
+  id, materia, grupo, dia, hora_inicio, hora_fin, aula,
+  profesores!inner (
+    nombre,
+    carreras (nombre)
+  )
+`;
+
+/**
+ * Limpia el término de búsqueda para el filtro .or() de PostgREST:
+ * comas, paréntesis, puntos, comillas, % y * alteran la sintaxis del filtro.
+ */
+export function limpiarTerminoBusqueda(texto: string): string {
+  return texto
+    .normalize("NFC")
+    .replace(/[^\p{L}\p{N} _-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 60);
+}
+
 // Descarga el catálogo de carreras para los botones de la interfaz
 export async function obtenerCarreras(): Promise<string[]> {
   const { data, error } = await supabase.from("carreras").select("nombre").order("nombre");
   if (error) {
-    console.error("Error al obtener carreras:", error.message);
+    log.error("Error al obtener carreras:", error.message);
     return ["TODAS"];
   }
-  return ["TODAS", ...data.map(c => c.nombre)];
+  return ["TODAS", ...(data || []).map((c) => c.nombre)];
 }
 
 export async function obtenerProfesores(busqueda: string = ""): Promise<HorarioDocente[]> {
   try {
-    const q = busqueda.trim();
+    const q = limpiarTerminoBusqueda(busqueda);
 
     // Consulta principal con triple relación (Horarios -> Profesores -> Carreras)
     if (!q) {
-      const { data, error } = await supabase
-        .from("horarios")
-        .select(`
-          id, materia, grupo, dia, hora_inicio, hora_fin, aula,
-          profesores (
-            nombre,
-            carreras (nombre)
-          )
-        `);
-      
-      if (error) throw error;
+      const { data, error } = await supabase.from("horarios").select(COLUMNAS);
+      if (error) {
+        log.error("Error al consultar horarios:", error.message);
+        return [];
+      }
       return formatearDatos(data);
     }
 
-    // Consulta con búsqueda por texto
+    // Consulta con búsqueda por texto (q ya no trae caracteres de la sintaxis de PostgREST)
     const { data, error } = await supabase
       .from("horarios")
-      .select(`
-        id, materia, grupo, dia, hora_inicio, hora_fin, aula,
-        profesores!inner (
-          nombre,
-          carreras (nombre)
-        )
-      `)
-      // Nota: Cambiamos 'docentes.nombre' a 'profesores.nombre' para que coincida con la nueva tabla
+      .select(COLUMNAS_CON_PROFESOR)
       .or(`materia.ilike.%${q}%,aula.ilike.%${q}%,grupo.ilike.%${q}%,profesores.nombre.ilike.%${q}%`);
 
     if (error) {
-      console.error("Error en consulta relacional:", error.message);
+      log.error("Error en consulta relacional:", error.message);
       return [];
     }
 
     return formatearDatos(data);
   } catch (err) {
-    console.error("Error en servicio de profesores:", err);
+    log.error("Error en servicio de profesores:", err);
     return [];
   }
 }
@@ -71,14 +90,14 @@ export async function obtenerProfesores(busqueda: string = ""): Promise<HorarioD
 function formatearDatos(data: any[] | null): HorarioDocente[] {
   if (!data) return [];
   return data.map((item) => ({
-    id: item.id.toString(),
+    id: String(item.id),
     docente: item.profesores?.nombre || "Sin Asignar",
     carrera: item.profesores?.carreras?.nombre || "SIN CARRERA",
-    materia: item.materia,
+    materia: item.materia ?? "",
     grupo: item.grupo || "",
-    dia: item.dia,
-    hora_inicio: item.hora_inicio,
-    hora_fin: item.hora_fin,
+    dia: item.dia ?? "",
+    hora_inicio: item.hora_inicio ?? "",
+    hora_fin: item.hora_fin ?? "",
     aula: item.aula || "",
   }));
 }

@@ -8,6 +8,7 @@
     "@react-navigation/native": "^7.5.0",
     "@react-navigation/native-stack": "^7.20.0",
     "@supabase/supabase-js": "^2.109.0",
+    "@xmldom/xmldom": "^0.9.12",
     "expo": "~58.0.23",
     "expo-status-bar": "~58.0.4",
     "lucide-react-native": "^1.54.0",
@@ -18,19 +19,34 @@
     "react-native-screens": "~4.30.1",
     "react-native-svg": "15.16.0",
     "react-native-web": "^0.21.2",
-    "react-native-webview": "14.0.1"
+    "react-native-webview": "14.0.1",
+    "three": "0.148.0"
   },
   "devDependencies": {
     "@types/react": "~19.3.0",
+    "eslint": "^9.0.0",
+    "eslint-config-expo": "~58.0.4",
     "gh-pages": "^6.3.0",
+    "globals": "14.0.0",
+    "puppeteer-core": "25.14.0",
     "typescript": "~6.0.3"
   },
   "scripts": {
+    "vendor": "node scripts/vendor-kiosk.mjs",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./test/registro.mjs --test \"test/unit/*.test.mjs\"",
+    "test:e2e": "node test/e2e/ejecutar.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "expo lint",
+    "postinstall": "node scripts/vendor-kiosk.mjs",
+    "prestart": "npm run vendor",
     "start": "expo start",
+    "preandroid": "npm run vendor",
     "android": "expo run:android",
+    "preios": "npm run vendor",
     "ios": "expo run:ios",
+    "preweb": "npm run vendor",
     "web": "expo start --web",
-    "predeploy": "npx expo export -p web && cp dist/index.html dist/404.html",
+    "predeploy": "npm run vendor && npx expo export -p web && node scripts/post-export.mjs",
     "deploy": "gh-pages -d dist"
   },
   "private": true

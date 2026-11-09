@@ -24,11 +24,13 @@ const Stack = createNativeStackNavigator();
 
 // Envoltorio para que cada pantalla conserve su propio lienzo de puntos
 const withBackground = (Component: React.ComponentType<any>) => {
-  return (props: any) => (
+  const ConFondo = (props: any) => (
     <DottedBackground>
       <Component {...props} />
     </DottedBackground>
   );
+  ConFondo.displayName = `ConFondo(${Component.displayName || Component.name || "Pantalla"})`;
+  return ConFondo;
 };
 
 const IndexScreen = withBackground(Index);

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 3000 2000">
+  <rect id="contorno_edificio" x="100" y="100" width="2000" height="1000" style="display:none"/>
+  <g transform="translate(100,100)">
+    <rect id="aula_s1" x="50" y="50" width="400" height="300" style="display:none"/>
+    <rect id="aula_s2" x="500" y="50" width="400" height="300" style="display:none"/>
+    <rect id="aula_s3" x="1500" y="600" width="450" height="350" style="display:none"/>
+    <rect id="entrada_principal" x="950" y="900" width="100" height="100" style="display:none"/>
+  </g>
+</svg>

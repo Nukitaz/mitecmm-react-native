@@ -17,6 +17,7 @@ import { ModuleCard } from "../components/index/ModuleCard";
 import { useTheme } from "../context/ThemeContext";
 import { AULAS_UBICACIONES, Suggestion } from "./Mapa";
 import { obtenerProfesores } from "../services/profesoresService";
+import { log } from "../utils/log";
 
 export const Index = () => {
   const navigation = useNavigation<any>();
@@ -98,7 +99,7 @@ export const Index = () => {
           });
         });
       } catch (err) {
-        console.error("Error al consultar Supabase:", err);
+        log.error("Error al consultar Supabase:", err);
       }
 
       setSugerencias(nuevasSugerencias.slice(0, 6));

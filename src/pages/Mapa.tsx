@@ -8,13 +8,25 @@ import {
   Platform,
   TextInput,
 } from "react-native";
-import { WebView } from "react-native-webview";
-import { useNavigation } from "@react-navigation/native";
-import { Search, User, Book, MapPin } from "lucide-react-native";
+import { WebView, WebViewMessageEvent } from "react-native-webview";
+import { useIsFocused, useNavigation } from "@react-navigation/native";
+import { Search, User, Book, MapPin, ArrowLeft } from "lucide-react-native";
 import { Navbar } from "../components/Navbar";
-import { getMapaGeneralUrl } from "../services/mapasService";
+import {
+  getMapaGeneralUrl,
+  getPlanoEdificioUrl,
+  descargarPlanoSvg,
+  PlanoError,
+  ErrorPlano,
+  MENSAJES_ERROR_PLANO,
+} from "../services/mapasService";
+import { EstadoPlano } from "../components/common/EstadoPlano";
+import { log } from "../utils/log";
 import { obtenerProfesores } from "../services/profesoresService";
 import { useTheme } from "../context/ThemeContext";
+import { PROPS_WEBVIEW_SEGURO } from "../constants/webviewSeguro";
+import { Mapa3DView } from "../components/mapa3d/Mapa3DView";
+import { normalizarAulaParam } from "../utils/sanitize";
 
 export const AULAS_UBICACIONES: Record<
   string,
@@ -196,6 +208,17 @@ const EDIFICIOS_CLICKEABLES: Record<string, { id: string; nombre: string }> = {
   Edificio_B: { id: "b", nombre: "Edificio B" },
 };
 
+/** Edificio del campus 3D (id del rect "edificio_<x>") -> edificio con planos interiores. */
+function edificioDesdeIdCampus(idCampus: string): { id: string; nombre: string } | null {
+  const m = /^edificio_([a-z0-9]+)$/.exec(idCampus.toLowerCase());
+  if (!m) return null;
+  return Object.values(EDIFICIOS_CLICKEABLES).find((e) => e.id === m[1]) ?? null;
+}
+
+type PlanosInterior =
+  | { estado: "cargando" }
+  | { estado: "listo"; baja: string; alta: string };
+
 export type Suggestion = {
   id: string;
   type: "aula" | "prof" | "materia";
@@ -209,6 +232,9 @@ let mapaGeneralCache: string | null = null;
 
 const Mapa = () => {
   const navigation = useNavigation<any>();
+  // La pila de navegación deja esta pantalla montada debajo del edificio: el 3D se
+  // desmonta al salir para no tener dos motores WebGL ocupando memoria a la vez.
+  const enFoco = useIsFocused();
   const { isDarkMode } = useTheme();
   const mapaGeneralUrl = getMapaGeneralUrl();
 
@@ -223,17 +249,72 @@ const Mapa = () => {
   const [isFocused, setIsFocused] = useState(false);
   const [sugerencias, setSugerencias] = useState<Suggestion[]>([]);
 
+  const [errorMapa, setErrorMapa] = useState<ErrorPlano | null>(null);
+  const [intentoMapa, setIntentoMapa] = useState(0);
+
+  // Vista 3D del campus (con el plano 2D como respaldo) y edificio abierto por dentro.
+  const [vista, setVista] = useState<"3d" | "2d">("3d");
+  const [aviso3D, setAviso3D] = useState<string | null>(null);
+  const [interior, setInterior] = useState<{ id: string; nombre: string } | null>(null);
+  const [planosInterior, setPlanosInterior] = useState<PlanosInterior>({ estado: "cargando" });
+  const [avisoCampus, setAvisoCampus] = useState<string | null>(null);
+
+  const abrirEdificioCompleto = (
+    edificio: { id: string; nombre: string },
+    extra: { plantaInicial?: "baja" | "alta"; aulaResaltada?: string } = {}
+  ) => {
+    navigation.navigate("Edificio", { id: edificio.id, nombre: edificio.nombre, ...extra });
+  };
+
+  // Planos de ambas plantas del edificio abierto (vista interior).
   useEffect(() => {
-    if (!mapaGeneralCache) {
-      fetch(mapaGeneralUrl)
-        .then((res) => res.text())
-        .then((text) => {
-          mapaGeneralCache = text;
-          setSvgContent(text);
-        })
-        .catch((err) => console.error("Error al cargar el mapa general:", err));
+    if (!interior) return;
+    const control = new AbortController();
+    Promise.all([
+      descargarPlanoSvg(getPlanoEdificioUrl(interior.id, "baja"), control.signal),
+      descargarPlanoSvg(getPlanoEdificioUrl(interior.id, "alta"), control.signal),
+    ])
+      .then(([baja, alta]) => setPlanosInterior({ estado: "listo", baja, alta }))
+      .catch((err) => {
+        if (control.signal.aborted) return;
+        // Sin planos para la vista interior: se abre la pantalla del edificio (tiene su propio manejo de errores).
+        log.error(`Vista interior ${interior.id}:`, err);
+        setInterior(null);
+        navigation.navigate("Edificio", { id: interior.id, nombre: interior.nombre });
+      });
+    return () => control.abort();
+  }, [interior, navigation]);
+
+  const abrirInterior = (edificio: { id: string; nombre: string } | null) => {
+    setPlanosInterior({ estado: "cargando" });
+    setInterior(edificio);
+  };
+
+  const alTocarEdificioCampus = (idCampus: string) => {
+    const edificio = edificioDesdeIdCampus(idCampus);
+    if (edificio) {
+      setAvisoCampus(null);
+      abrirInterior(edificio);
+    } else {
+      setAvisoCampus("Este edificio aún no tiene plano interior.");
     }
-  }, [mapaGeneralUrl]);
+  };
+
+  useEffect(() => {
+    if (mapaGeneralCache) return;
+    const control = new AbortController();
+    descargarPlanoSvg(mapaGeneralUrl, control.signal)
+      .then((limpio) => {
+        mapaGeneralCache = limpio;
+        setSvgContent(limpio);
+      })
+      .catch((err) => {
+        if (control.signal.aborted) return;
+        log.error("Error al cargar el mapa general:", err);
+        setErrorMapa(err instanceof PlanoError ? err.motivo : "red");
+      });
+    return () => control.abort();
+  }, [mapaGeneralUrl, intentoMapa]);
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
@@ -304,7 +385,7 @@ const Mapa = () => {
           });
         });
       } catch (err) {
-        console.error("Error al consultar Supabase:", err);
+        log.error("Error al consultar Supabase:", err);
       }
 
       setSugerencias(nuevasSugerencias.slice(0, 6));
@@ -327,7 +408,7 @@ const Mapa = () => {
       const isHovered = activeBuildingSvgId === svgId;
       const regex = new RegExp(`(<[^>]+id="${svgId}"[^>]*)(style="[^"]*")?`, "g");
 
-      modifiedXml = modifiedXml.replace(regex, (match, p1) => {
+      modifiedXml = modifiedXml.replace(regex, (_coincidencia, p1) => {
         const extendedClickStyle = "pointer-events: all; cursor: pointer; stroke-width: 12px; stroke: transparent;";
         if (isHovered) {
           return `${p1} style="${extendedClickStyle} filter: drop-shadow(0px 0px 10px #a855f7); transition: all 0.2s;"`;
@@ -500,8 +581,29 @@ const Mapa = () => {
           >
             <View style={styles.mapHeader}>
               <Text style={[styles.mapTag, !isDarkMode && styles.textLightSecondary]}>
-                // MAPA_GENERAL.SVG
+                {interior ? `// ${interior.nombre.toUpperCase()} · INTERIOR` : "// MAPA_GENERAL.SVG"}
               </Text>
+              {!interior && (
+                <View style={[styles.toggle, !isDarkMode && styles.toggleLight]} accessibilityRole="tablist">
+                  {(["3d", "2d"] as const).map((v) => (
+                    <TouchableOpacity
+                      key={v}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected: vista === v }}
+                      accessibilityLabel={v === "3d" ? "Vista 3D del campus" : "Plano 2D del campus"}
+                      style={[styles.toggleBtn, vista === v && styles.toggleBtnActivo]}
+                      onPress={() => {
+                        setAviso3D(null);
+                        setVista(v);
+                      }}
+                    >
+                      <Text style={[styles.toggleText, vista === v && styles.toggleTextActivo]}>
+                        {v === "3d" ? "3D" : "2D"}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
               <View style={styles.liveTag}>
                 <View style={styles.liveDot} />
                 <Text style={styles.liveText}>
@@ -511,6 +613,31 @@ const Mapa = () => {
                 </Text>
               </View>
             </View>
+
+            {interior && (
+              <View style={styles.interiorBar}>
+                <TouchableOpacity
+                  style={[styles.volverBtn, !isDarkMode && styles.volverBtnLight]}
+                  onPress={() => abrirInterior(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Volver al campus"
+                >
+                  <ArrowLeft size={14} color="#a855f7" />
+                  <Text style={styles.volverText}>Campus</Text>
+                </TouchableOpacity>
+                <Text style={[styles.interiorHint, !isDarkMode && styles.textLightSecondary]} numberOfLines={2}>
+                  Toca un espacio para abrir su planta.
+                </Text>
+                <TouchableOpacity onPress={() => abrirEdificioCompleto(interior)} accessibilityRole="link">
+                  <Text style={styles.verPlanosText}>Ver planos</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {(aviso3D || avisoCampus) && !interior && (
+              <Text style={[styles.aviso, !isDarkMode && styles.textLightSecondary]} accessibilityLiveRegion="polite">
+                {aviso3D || avisoCampus}
+              </Text>
+            )}
 
             <View style={[styles.canvasContainer, !isDarkMode && styles.canvasContainerLight]}>
               <View
@@ -530,7 +657,44 @@ const Mapa = () => {
                   },
                 } as any)}
               >
-                {processedSvg ? (
+                {!enFoco && (interior || vista === "3d") ? null : interior ? (
+                  planosInterior.estado === "listo" ? (
+                    <Mapa3DView
+                      key={`interior-${interior.id}`}
+                      svgXml={planosInterior.baja}
+                      svgSecundario={planosInterior.alta}
+                      edificioId={interior.id}
+                      planta="baja"
+                      vistaApilada
+                      isDarkMode={isDarkMode}
+                      titulo={interior.nombre}
+                      onRoomClick={(id, plantaDelEspacio) =>
+                        abrirEdificioCompleto(interior, {
+                          plantaInicial: plantaDelEspacio,
+                          aulaResaltada: normalizarAulaParam(id)?.toUpperCase(),
+                        })
+                      }
+                      onError={() => abrirEdificioCompleto(interior)}
+                    />
+                  ) : (
+                    <EstadoPlano tipo="cargando" mensaje={`Cargando ${interior.nombre}…`} isDarkMode={isDarkMode} />
+                  )
+                ) : processedSvg && vista === "3d" ? (
+                  <Mapa3DView
+                    key="campus"
+                    svgXml={svgContent}
+                    edificioId="campus"
+                    planta="baja"
+                    modo="campus"
+                    isDarkMode={isDarkMode}
+                    titulo="campus"
+                    onRoomClick={(id) => alTocarEdificioCampus(id)}
+                    onError={() => {
+                      setAviso3D("La vista 3D no está disponible en este dispositivo. Se muestra el plano 2D.");
+                      setVista("2d");
+                    }}
+                  />
+                ) : processedSvg ? (
                   Platform.OS === "web" ? (
                     <div
                       style={{ width: "100%", height: "100%", backgroundColor: bgColor }}
@@ -538,7 +702,7 @@ const Mapa = () => {
                     />
                   ) : (
                     <WebView
-                      originWhitelist={["*"]}
+                      {...PROPS_WEBVIEW_SEGURO}
                       source={{
                         html: `
                           <!DOCTYPE html>
@@ -610,22 +774,31 @@ const Mapa = () => {
                       containerStyle={{ backgroundColor: bgColor }}
                       scrollEnabled={false}
                       scalesPageToFit={true}
-                      onMessage={(event) => {
+                      onMessage={(event: WebViewMessageEvent): void => {
                         try {
                           const data = JSON.parse(event.nativeEvent.data);
                           if (data.type === "BUILDING_CLICK" && data.id) {
                             handleElementClick(data.id);
                           }
                         } catch (e) {
-                          console.error("Error al procesar mensaje del WebView:", e);
+                          log.error("Error al procesar mensaje del WebView:", e);
                         }
                       }}
                     />
                   )
+                ) : errorMapa ? (
+                  <EstadoPlano
+                    tipo="error"
+                    mensaje={MENSAJES_ERROR_PLANO[errorMapa].mensaje}
+                    detalle={MENSAJES_ERROR_PLANO[errorMapa].detalle}
+                    isDarkMode={isDarkMode}
+                    onReintentar={() => {
+                      setErrorMapa(null);
+                      setIntentoMapa((n) => n + 1);
+                    }}
+                  />
                 ) : (
-                  <Text style={{ color: "#71717a", textAlign: "center", marginTop: 20 }}>
-                    Cargando Mapa del Campus...
-                  </Text>
+                  <EstadoPlano tipo="cargando" mensaje="Cargando mapa del campus…" isDarkMode={isDarkMode} />
                 )}
               </View>
             </View>
@@ -800,6 +973,44 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 8,
   },
+  toggle: {
+    flexDirection: "row",
+    borderWidth: 1,
+    borderColor: "#27272a",
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  toggleLight: { borderColor: "#e2e8f0" },
+  toggleBtn: { paddingHorizontal: 12, paddingVertical: 6 },
+  toggleBtnActivo: { backgroundColor: "#a855f7" },
+  toggleText: {
+    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
+    fontSize: 11,
+    fontWeight: "bold",
+    color: "#a1a1aa",
+  },
+  toggleTextActivo: { color: "#ffffff" },
+  interiorBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 10,
+  },
+  volverBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "rgba(168, 85, 247, 0.5)",
+    borderRadius: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  volverBtnLight: { borderColor: "#d8b4fe" },
+  volverText: { color: "#a855f7", fontWeight: "bold", fontSize: 13 },
+  interiorHint: { flex: 1, color: "#a1a1aa", fontSize: 13 },
+  verPlanosText: { color: "#a855f7", fontSize: 13, textDecorationLine: "underline" },
+  aviso: { color: "#a1a1aa", fontSize: 12, marginBottom: 8 },
   mapHeader: {
     flexDirection: "row",
     justifyContent: "space-between",

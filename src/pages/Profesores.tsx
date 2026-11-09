@@ -26,6 +26,7 @@ import { obtenerProfesores, obtenerCarreras, HorarioDocente } from "../services/
 import { AULAS_UBICACIONES } from "./Mapa";
 import { useNavigation } from "@react-navigation/native";
 import { useTheme } from "../context/ThemeContext";
+import { log } from "../utils/log";
 
 type Suggestion = {
   id: string;
@@ -43,7 +44,7 @@ type ProfesorAgrupado = {
 };
 
 // Tarjeta colapsable (Acordeón)
-const ProfesorCard = React.memo(({ prof }: { prof: ProfesorAgrupado }) => {
+const ProfesorCard = React.memo(function ProfesorCard({ prof }: { prof: ProfesorAgrupado }) {
   const { isDarkMode } = useTheme();
   const navigation = useNavigation<any>();
   const [isHovered, setIsHovered] = useState(false);
@@ -180,7 +181,7 @@ const Profesores = ({ route }: any) => {
   const [sugerencias, setSugerencias] = useState<Suggestion[]>([]);
   const [carrerasDisponibles, setCarrerasDisponibles] = useState<string[]>(["TODAS"]);
 
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const scrollOffsetRef = useRef(0);
 
   const desplazarFiltros = (direccion: "izquierda" | "derecha") => {
@@ -201,11 +202,13 @@ const Profesores = ({ route }: any) => {
     cargarCarreras();
   }, []);
 
-  useEffect(() => {
-    if (route?.params?.q !== undefined) {
-      setBusqueda(route.params.q);
-    }
-  }, [route?.params?.q]);
+  // Si llega otra búsqueda por parámetro, se aplica durante el render.
+  const qParam = route?.params?.q;
+  const [qParamPrevio, setQParamPrevio] = useState(qParam);
+  if (qParam !== qParamPrevio) {
+    setQParamPrevio(qParam);
+    if (qParam !== undefined) setBusqueda(qParam);
+  }
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
@@ -275,7 +278,7 @@ const Profesores = ({ route }: any) => {
           setSugerencias([]);
         }
       } catch (err) {
-        console.error("Error al consultar profesores:", err);
+        log.error("Error al consultar profesores:", err);
       } finally {
         setIsLoading(false);
       }

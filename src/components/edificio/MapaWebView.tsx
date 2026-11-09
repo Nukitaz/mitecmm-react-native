@@ -1,7 +1,10 @@
-import React, { forwardRef } from "react";
-import { View, StyleSheet, Platform } from "react-native";
-import { WebView } from "react-native-webview";
+import React, { forwardRef, useEffect, useRef } from "react";
+import { Platform } from "react-native";
+import { WebView, WebViewMessageEvent } from "react-native-webview";
 import { getInjectedJavaScript } from "../../constants/scriptInject";
+import { esIdSvgValido } from "../../utils/sanitize";
+import { PROPS_WEBVIEW_SEGURO } from "../../constants/webviewSeguro";
+import { log } from "../../utils/log";
 
 interface MapaWebViewProps {
   svgBaja: string | null | undefined;
@@ -12,9 +15,31 @@ interface MapaWebViewProps {
   isDarkMode: boolean;
 }
 
-export const MapaWebView = forwardRef<WebView, MapaWebViewProps>(
-  ({ svgBaja, svgAlta, planta = "baja", targetSvgId, onAulaClick, isDarkMode }, ref) => {
-    if (!svgBaja) return null;
+// Nota: react-native-webview 14 declara `WebView<P = undefined>` con props `WebViewProps & P`;
+// con P = undefined el tipo se reduce a never en TS 6, por eso se usa WebView<object>.
+export const MapaWebView = forwardRef<WebView<object>, MapaWebViewProps>(
+  function MapaWebView({ svgBaja, svgAlta, planta = "baja", targetSvgId, onAulaClick, isDarkMode }, ref) {
+    const capaBajaRef = useRef<HTMLDivElement | null>(null);
+    const capaAltaRef = useRef<HTMLDivElement | null>(null);
+
+    // Web: el resaltado se aplica sobre el DOM ya renderizado (classList),
+    // nunca reescribiendo el HTML con texto que viene de la URL.
+    useEffect(() => {
+      if (Platform.OS !== "web") return;
+      const capas = [capaBajaRef.current, capaAltaRef.current];
+      capas.forEach((capa) =>
+        capa
+          ?.querySelectorAll(".resaltado-activo")
+          .forEach((el) => el.classList.remove("resaltado-activo"))
+      );
+      if (!esIdSvgValido(targetSvgId)) return;
+      const capaActiva = planta === "alta" ? capaAltaRef.current : capaBajaRef.current;
+      capaActiva?.querySelectorAll("[id]").forEach((el) => {
+        if (el.id.toLowerCase() === targetSvgId) el.classList.add("resaltado-activo");
+      });
+    }, [targetSvgId, planta, svgBaja, svgAlta, isDarkMode]);
+
+    if (!svgBaja && !svgAlta) return null;
 
     const bgColor = isDarkMode ? "#08080a" : "#f8fafc";
     const textColor = isDarkMode ? "#ffffff" : "#0f172a";
@@ -74,6 +99,7 @@ export const MapaWebView = forwardRef<WebView, MapaWebViewProps>(
       return (
         <div style={{ width: "100%", height: "100%", position: "relative", backgroundColor: bgColor, border: "none" }}>
           <div
+            ref={capaBajaRef}
             style={{
               position: "absolute",
               inset: 0,
@@ -81,18 +107,11 @@ export const MapaWebView = forwardRef<WebView, MapaWebViewProps>(
               transition: "opacity 0.35s ease",
               border: "none",
             }}
-            dangerouslySetInnerHTML={{
-              __html:
-                planta === "baja" && targetSvgId
-                  ? formattedBaja.replace(
-                      new RegExp(`id="${targetSvgId}"`, "gi"),
-                      `id="${targetSvgId}" class="resaltado-activo"`
-                    )
-                  : formattedBaja,
-            }}
+            dangerouslySetInnerHTML={{ __html: formattedBaja }}
           />
           {formattedAlta && (
             <div
+              ref={capaAltaRef}
               style={{
                 position: "absolute",
                 inset: 0,
@@ -102,15 +121,7 @@ export const MapaWebView = forwardRef<WebView, MapaWebViewProps>(
                 transform: planta === "alta" ? "translateY(0)" : "translateY(12px)",
                 border: "none",
               }}
-              dangerouslySetInnerHTML={{
-                __html:
-                  planta === "alta" && targetSvgId
-                    ? formattedAlta.replace(
-                        new RegExp(`id="${targetSvgId}"`, "gi"),
-                        `id="${targetSvgId}" class="resaltado-activo"`
-                      )
-                    : formattedAlta,
-              }}
+              dangerouslySetInnerHTML={{ __html: formattedAlta }}
             />
           )}
         </div>
@@ -120,7 +131,7 @@ export const MapaWebView = forwardRef<WebView, MapaWebViewProps>(
     return (
       <WebView
         ref={ref}
-        originWhitelist={["*"]}
+        {...PROPS_WEBVIEW_SEGURO}
         source={{
           html: `
             <!DOCTYPE html>
@@ -222,14 +233,14 @@ export const MapaWebView = forwardRef<WebView, MapaWebViewProps>(
         containerStyle={{ backgroundColor: bgColor }}
         scrollEnabled={true}
         scalesPageToFit={true}
-        onMessage={(event) => {
+        onMessage={(event: WebViewMessageEvent) => {
           try {
             const data = JSON.parse(event.nativeEvent.data);
-            if (data.type === "AULA_CLICK" && data.id) {
+            if (data?.type === "AULA_CLICK" && typeof data.id === "string" && data.id.length <= 120) {
               onAulaClick(data.id);
             }
           } catch (e) {
-            console.error("Error WebView:", e);
+            log.error("Error WebView:", e);
           }
         }}
       />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AlertTriangle, ChevronRight, X } from "lucide-react-native";
 import { fetchAvisos, type Aviso } from "../services/avisosService";
 import { useTheme } from "../context/ThemeContext";
+import { useReduceMotion } from "../hooks/useReduceMotion";
 
 export const AvisosBanner = () => {
   const insets = useSafeAreaInsets();
@@ -21,10 +22,13 @@ export const AvisosBanner = () => {
   const [avisos, setAvisos] = useState<Aviso[]>([]);
   const [selected, setSelected] = useState<Aviso | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  // Con "reducir movimiento" la marquesina no se anima: se muestra una fila
+  // fija que el usuario puede deslizar a mano.
+  const reducirMovimiento = useReduceMotion();
 
   // Ancho medido de un bloque para animación continua en Android
   const [singleWidth, setSingleWidth] = useState(0);
-  const animatedValue = useRef(new Animated.Value(0)).current;
+  const [animatedValue] = useState(() => new Animated.Value(0));
 
   // Cargar datos reales de Supabase
   useEffect(() => {
@@ -45,7 +49,7 @@ export const AvisosBanner = () => {
 
   // Animación continua y fluida para Android / iOS (solo si hay más de 2 avisos)
   useEffect(() => {
-    if (Platform.OS === "web" || singleWidth === 0 || baseList.length === 0 || !isAnimated) return;
+    if (Platform.OS === "web" || reducirMovimiento || singleWidth === 0 || baseList.length === 0 || !isAnimated) return;
 
     animatedValue.setValue(0);
     const duration = Math.max(12000, (singleWidth / 42) * 1000);
@@ -61,7 +65,7 @@ export const AvisosBanner = () => {
     animation.start();
 
     return () => animation.stop();
-  }, [singleWidth, baseList, isAnimated]);
+  }, [singleWidth, baseList, animatedValue, reducirMovimiento, isAnimated]);
 
   const esUrgente = (categoria: string) => categoria.toLowerCase() === "urgente";
 
@@ -136,11 +140,15 @@ export const AvisosBanner = () => {
             >
               Sin avisos por el momento
             </Text>
-          ) : !isAnimated ? (
-             /* Mostrar avisos estáticos si son muy pocos (sin animación y sin repetición) */
-             <View style={styles.trackGroup}>
-                {avisos.map((a, i) => renderTickerItem(a, `static-${a.id}-${i}`))}
-             </View>
+          ) : !isAnimated || reducirMovimiento ? (
+            /* Pocos avisos o "reducir movimiento": una sola copia, deslizable a mano */
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.trackGroup}
+            >
+              {avisos.map((a) => renderTickerItem(a, `s-${a.id}`))}
+            </ScrollView>
           ) : Platform.OS === "web" ? (
             /* Versión Web animada */
             <div
@@ -169,6 +177,9 @@ export const AvisosBanner = () => {
                     }
                     .marquee-track-web:hover {
                       animation-play-state: paused;
+                    }
+                    @media (prefers-reduced-motion: reduce) {
+                      .marquee-track-web { animation: none; }
                     }
                     .marquee-group-web {
                       display: flex !important;

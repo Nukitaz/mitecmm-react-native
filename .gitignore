@@ -31,7 +31,6 @@ yarn-error.*
 *.pem
 
 # local env files
-.env
 .env*.local
 
 # typescript
@@ -40,3 +39,15 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# variables de entorno (nunca subir valores reales)
+.env
+.env.*
+!.env.example
+
+# motor 3D generado por scripts/vendor-kiosk.mjs
+/public/vendor/
+/src/vendor/
+
+# build de las pruebas de navegador (npm run test:e2e)
+/test/.dist/
