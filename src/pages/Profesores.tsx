@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -9,7 +9,18 @@ import {
   Platform,
   ScrollView
 } from "react-native";
-import { Search, Book, Calendar, Clock, MapPin, User, ChevronDown, ChevronUp } from "lucide-react-native";
+import { 
+  Search, 
+  Book, 
+  Calendar, 
+  Clock, 
+  MapPin, 
+  User, 
+  ChevronDown, 
+  ChevronUp, 
+  ChevronLeft, 
+  ChevronRight 
+} from "lucide-react-native";
 import { Navbar } from "../components/Navbar";
 import { obtenerProfesores, obtenerCarreras, HorarioDocente } from "../services/profesoresService";
 import { AULAS_UBICACIONES } from "./Mapa";
@@ -36,7 +47,7 @@ const ProfesorCard = React.memo(({ prof }: { prof: ProfesorAgrupado }) => {
   const { isDarkMode } = useTheme();
   const navigation = useNavigation<any>();
   const [isHovered, setIsHovered] = useState(false);
-  const [expandido, setExpandido] = useState(false); // Estado para controlar el acordeón
+  const [expandido, setExpandido] = useState(false);
   
   const initials = useMemo(() => {
     if (!prof.docente) return "P";
@@ -87,7 +98,6 @@ const ProfesorCard = React.memo(({ prof }: { prof: ProfesorAgrupado }) => {
         </View>
       </TouchableOpacity>
       
-      {/* Se muestran las clases solo si la tarjeta está expandida */}
       {expandido && (
         <View style={{ marginTop: 12 }}>
           {prof.clases.map((clase, index) => {
@@ -168,23 +178,28 @@ const Profesores = ({ route }: any) => {
   const [carreraSeleccionada, setCarreraSeleccionada] = useState("TODAS");
   const [isFocused, setIsFocused] = useState(false);
   const [sugerencias, setSugerencias] = useState<Suggestion[]>([]);
+  const [carrerasDisponibles, setCarrerasDisponibles] = useState<string[]>(["TODAS"]);
 
-  //const CARRERAS_DISPONIBLES = ["TODAS", "SISTEMAS", "ARQUITECTURA", "ELECTROMECÁNICA", "GASTRONOMÍA"]; // Ajusta estos nombres según tu escuela
-  
-// 1. Agrega estas variables de estado
-const [carrerasDisponibles, setCarrerasDisponibles] = useState<string[]>(["TODAS"]);
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollOffsetRef = useRef(0);
 
-// 2. Agrega este useEffect para cargar las carreras al abrir la app
-useEffect(() => {
-  async function cargarCarreras() {
-    const lista = await obtenerCarreras();
-    setCarrerasDisponibles(lista);
-  }
-  cargarCarreras();
-}, []);
+  const desplazarFiltros = (direccion: "izquierda" | "derecha") => {
+    const distancia = 260;
+    const nuevoOffset = direccion === "izquierda"
+      ? Math.max(0, scrollOffsetRef.current - distancia)
+      : scrollOffsetRef.current + distancia;
 
-// 3. En tu JSX (menú de filtros), cambia CARRERAS_DISPONIBLES por la variable de estado:
-// {carrerasDisponibles.map(carrera => ( ... ))}
+    scrollRef.current?.scrollTo({ x: nuevoOffset, animated: true });
+    scrollOffsetRef.current = nuevoOffset;
+  };
+
+  useEffect(() => {
+    async function cargarCarreras() {
+      const lista = await obtenerCarreras();
+      setCarrerasDisponibles(lista);
+    }
+    cargarCarreras();
+  }, []);
 
   useEffect(() => {
     if (route?.params?.q !== undefined) {
@@ -283,7 +298,6 @@ useEffect(() => {
     
     const arregloAgrupado = Array.from(grupos.values());
     
-    // Filtro por carrera
     if (carreraSeleccionada !== "TODAS") {
       return arregloAgrupado.filter(p => p.carrera.toUpperCase() === carreraSeleccionada);
     }
@@ -308,14 +322,6 @@ useEffect(() => {
       });
     }
   }, [navigation]);
-
-  const IconoTipo = ({ type }: { type: string }) => {
-    switch (type) {
-      case "prof": return <User size={16} color="#a855f7" />;
-      case "materia": return <Book size={16} color="#a855f7" />;
-      default: return <MapPin size={16} color="#a855f7" />;
-    }
-  };
 
   const renderCard = useCallback(({ item }: { item: ProfesorAgrupado }) => (
     <ProfesorCard prof={item} />
@@ -359,9 +365,27 @@ useEffect(() => {
         </View>
       </View>
 
-      {/* Menú de filtros por carrera */}
+      {/* Menú de filtros por carrera con flechas */}
       <View style={styles.filtrosContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scrollFiltros}>
+        <TouchableOpacity
+          style={[styles.flechaBtn, !isDarkMode && styles.flechaBtnLight]}
+          onPress={() => desplazarFiltros("izquierda")}
+          activeOpacity={0.7}
+        >
+          <ChevronLeft size={18} color={isDarkMode ? "#a1a1aa" : "#64748b"} />
+        </TouchableOpacity>
+
+        <ScrollView 
+          ref={scrollRef}
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          onScroll={(e) => {
+            scrollOffsetRef.current = e.nativeEvent.contentOffset.x;
+          }}
+          scrollEventThrottle={16}
+          contentContainerStyle={styles.scrollFiltros}
+          style={{ flexGrow: 0 }}
+        > 
           {carrerasDisponibles.map(carrera => (
             <TouchableOpacity
               key={carrera}
@@ -382,6 +406,14 @@ useEffect(() => {
             </TouchableOpacity>
           ))}
         </ScrollView>
+
+        <TouchableOpacity
+          style={[styles.flechaBtn, !isDarkMode && styles.flechaBtnLight]}
+          onPress={() => desplazarFiltros("derecha")}
+          activeOpacity={0.7}
+        >
+          <ChevronRight size={18} color={isDarkMode ? "#a1a1aa" : "#64748b"} />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.resultsHeader}>
@@ -392,7 +424,7 @@ useEffect(() => {
         <Text style={styles.activeText}>EN CLASE AHORA</Text>
       </View>
     </View>
-  ), [isDarkMode, isFocused, busqueda, sugerencias, profesoresAgrupados.length, handleSelectSuggestion, carreraSeleccionada]);
+  ), [isDarkMode, isFocused, busqueda, sugerencias, profesoresAgrupados.length, handleSelectSuggestion, carreraSeleccionada, carrerasDisponibles]);
 
   return (
     <View style={[styles.screen, !isDarkMode && styles.screenLight]}>
@@ -446,9 +478,38 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, paddingVertical: 14, color: "#ffffff", fontSize: 16, outlineStyle: "none" as any },
   searchInputLight: { color: "#0f172a" },
   
-  // Estilos del menú de filtros
-  filtrosContainer: { marginBottom: 20, height: 40 },
-  scrollFiltros: { justifyContent: "center", alignItems: "center", paddingHorizontal: 10, gap: 10 },
+  // Estilos del menú de filtros y flechas
+  filtrosContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+    maxWidth: 920,
+    alignSelf: "center",
+    marginBottom: 20,
+    paddingHorizontal: 4,
+  },
+  flechaBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#16161f",
+    borderWidth: 1,
+    borderColor: "#27272a",
+    justifyContent: "center",
+    alignItems: "center",
+    marginHorizontal: 6,
+    zIndex: 10,
+  },
+  flechaBtnLight: {
+    backgroundColor: "#f1f5f9",
+    borderColor: "#e2e8f0",
+  },
+  scrollFiltros: {
+    alignItems: "center",
+    paddingHorizontal: 6,
+    gap: 10,
+  },
   filtroBoton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: "#1c142c", borderWidth: 1, borderColor: "#27272a" },
   filtroBotonLight: { backgroundColor: "#f1f5f9", borderColor: "#e2e8f0" },
   filtroBotonActivo: { backgroundColor: "#a855f7", borderColor: "#a855f7" },
