@@ -11,7 +11,8 @@ interface Mapa3DViewProps {
   planta: "baja" | "alta";
   selectedRoomId?: string | null;
   isDarkMode: boolean;
-  onRoomClick?: (roomId: string) => void;
+  /** Se tocó un espacio; `planta` es la planta donde está (la activa o la apilada). */
+  onRoomClick?: (roomId: string, planta: "baja" | "alta") => void;
   /** El 3D no puede mostrarse en este dispositivo/plano: la pantalla debe volver al 2D. */
   onError?: (motivo: MotivoError3D) => void;
   /** El motor quitó el resaltado (tecla Escape o inactividad en modo quiosco). */
@@ -24,10 +25,17 @@ interface Mapa3DViewProps {
   inactividadMs?: number;
   /** Nombre del edificio (descripción accesible del mapa). */
   titulo?: string;
+  /** "campus": el plano es el mapa general y cada espacio es un edificio. */
+  modo?: "edificio" | "campus";
+  /** Abrir con ambas plantas apiladas (requiere svgSecundario con contorno_edificio). */
+  vistaApilada?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
 export type MotivoError3D = "three" | "webgl" | "sin_aulas" | "construccion" | "contexto" | "tiempo" | "no_disponible";
+
+/** Edificios cuyos salones tienen muros de cristal (el 3D los dibuja translúcidos). */
+const EDIFICIOS_MUROS_CRISTAL = ["l"];
 
 /** Si el motor no confirma que la escena está lista en este tiempo, se considera fallido. */
 const TIEMPO_MAXIMO_3D_MS = 20000;
@@ -49,6 +57,8 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
   aqui,
   inactividadMs = 0,
   titulo,
+  modo = "edificio",
+  vistaApilada = false,
   style,
 }) => {
   // Nota: react-native-webview 14 declara `WebView<P = undefined>` con props `WebViewProps & P`;
@@ -57,9 +67,9 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   // Valores actuales para responder al saludo del motor sin recrear listeners.
-  const actual = useRef({ svgXml, isDarkMode, selectedRoomId, onRoomClick, onError, onSeleccionLimpiada, svgSecundario, aqui, inactividadMs, titulo, planta });
+  const actual = useRef({ svgXml, isDarkMode, selectedRoomId, onRoomClick, onError, onSeleccionLimpiada, svgSecundario, aqui, inactividadMs, titulo, planta, edificioId, modo, vistaApilada });
   useLayoutEffect(() => {
-    actual.current = { svgXml, isDarkMode, selectedRoomId, onRoomClick, onError, onSeleccionLimpiada, svgSecundario, aqui, inactividadMs, titulo, planta };
+    actual.current = { svgXml, isDarkMode, selectedRoomId, onRoomClick, onError, onSeleccionLimpiada, svgSecundario, aqui, inactividadMs, titulo, planta, edificioId, modo, vistaApilada };
   });
   const escenaLista = useRef(false);
   const errorReportado = useRef(false);
@@ -105,6 +115,9 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
           aqui: esIdSvgValido(a.aqui) ? a.aqui : "",
           inactividadMs: a.inactividadMs || 0,
           titulo: a.titulo || "",
+          murosCristal: EDIFICIOS_MUROS_CRISTAL.includes(a.edificioId.toLowerCase()),
+          modo: a.modo,
+          vistaApilada: a.vistaApilada,
         });
       } else if (data.type === "SELECCION_LIMPIADA") {
         actual.current.onSeleccionLimpiada?.();
@@ -115,7 +128,8 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
         reportarError(motivo);
       } else if (data.type === "AULA_CLICK") {
         const id = String(data.id ?? "");
-        if (esIdSvgValido(id.toLowerCase())) actual.current.onRoomClick?.(id);
+        const plantaClic = data.planta === "alta" || data.planta === "baja" ? data.planta : actual.current.planta;
+        if (esIdSvgValido(id.toLowerCase())) actual.current.onRoomClick?.(id, plantaClic);
       }
     },
     [enviar, reportarError]
@@ -145,7 +159,7 @@ export const Mapa3DView: React.FC<Mapa3DViewProps> = ({
 
   // Tiempo máximo: si el motor no llega a KIOSK_READY (iframe bloqueado, script que no
   // carga, dispositivo muy lento) se informa el error en lugar de un loader infinito.
-  const claveEscena = svgXml ? `${edificioId}-${planta}-${isDarkMode ? "d" : "l"}-${svgXml.length}` : "";
+  const claveEscena = svgXml ? `${modo}-${edificioId}-${planta}-${isDarkMode ? "d" : "l"}-${svgXml.length}` : "";
   useEffect(() => {
     if (!claveEscena) return;
     escenaLista.current = false;

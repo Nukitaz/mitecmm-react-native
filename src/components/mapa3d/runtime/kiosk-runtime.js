@@ -70,11 +70,18 @@
         // Otra planta del edificio (para apilarlas) y si es la superior.
         svgSecundario: typeof data.svgSecundario === "string" ? data.svgSecundario : "",
         secundariaEsSuperior: data.plantaActiva !== "alta",
+        plantaActiva: data.plantaActiva === "alta" ? "alta" : "baja",
+        // "campus": el plano es el mapa general y sus espacios son edificios.
+        modo: data.modo === "campus" ? "campus" : "edificio",
+        // Abrir directamente con ambas plantas apiladas (vista interior desde el campus).
+        vistaApilada: data.vistaApilada === true,
         // "Usted está aquí": ID de un elemento del plano (validado).
         aqui: typeof data.aqui === "string" && ID_VALIDO.test(data.aqui) ? data.aqui : "",
         // Modo quiosco: volver a la vista inicial tras X ms sin uso (0 = desactivado).
         inactividadMs: inactividad >= 5000 && inactividad <= 3600000 ? inactividad : 0,
         titulo: typeof data.titulo === "string" ? data.titulo.slice(0, 80) : "",
+        // Salones con muros de cristal (p. ej. edificio L).
+        murosCristal: data.murosCristal === true,
       });
     } else if (data.type === "SELECT_ROOM" && motor && typeof data.id === "string" && ID_VALIDO.test(data.id)) {
       // Selección pedida por la app: no se notifica de vuelta (evita ciclos).
@@ -142,8 +149,10 @@
     var cameraTarget = new THREE.Vector3(0, 0, 0);
     var targetCameraLerp = null;
 
+    /** El campus es más grande que un edificio: la cámara inicial queda más lejos. */
+    var RADIO_INICIAL = cfg.modo === "campus" ? 205 : 170;
     var spherical = {
-      radius: 170,
+      radius: RADIO_INICIAL,
       theta: Math.PI / 4,
       phi: Math.PI / 3.2,
     };
@@ -405,13 +414,42 @@
     var planoActivo = null;
     var normalizacion = null; // { cx, cy, scale }: coordenadas del SVG -> mundo 3D
 
-    // 7a. Formas propias de escaleras y baños (en lugar de una caja).
+    // 7a. Formas propias de cada espacio (en lugar de una caja): escaleras, baños y salones.
     var matEscalon = [materials.roomWall, materials.roomWall, materials.roomTop, materials.roomWall, materials.roomWall, materials.roomWall];
     var matPisoBano = new THREE.MeshStandardMaterial({ color: new THREE.Color(isDark ? "#1f3b4d" : "#dbeafe"), roughness: 0.4, metalness: 0.05 });
     var matMuroBano = new THREE.MeshStandardMaterial({ color: new THREE.Color(isDark ? "#3f5873" : "#a5b4c8"), roughness: 0.6, metalness: 0.05 });
     var matLoza = new THREE.MeshStandardMaterial({ color: new THREE.Color("#f8fafc"), roughness: 0.25, metalness: 0.05 });
+    var matPisoSalon = new THREE.MeshStandardMaterial({ color: new THREE.Color(isDark ? "#263247" : "#e2e8f0"), roughness: 0.6, metalness: 0.05 });
+    var matMadera = new THREE.MeshStandardMaterial({ color: new THREE.Color(isDark ? "#9a6b45" : "#c08a5c"), roughness: 0.6, metalness: 0.02 });
+    var matMetal = new THREE.MeshStandardMaterial({ color: new THREE.Color(isDark ? "#64748b" : "#475569"), roughness: 0.4, metalness: 0.4 });
+    var matPizarron = new THREE.MeshStandardMaterial({ color: new THREE.Color("#1f5f46"), roughness: 0.8, metalness: 0.02 });
+    // Muros de cristal (edificio L): translúcidos, con marco de aluminio.
+    var matCristal = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(isDark ? "#7dd3fc" : "#38bdf8"),
+      transparent: true,
+      opacity: isDark ? 0.22 : 0.28,
+      roughness: 0.05,
+      metalness: 0.3,
+      depthWrite: false,
+    });
+    var matMarco = new THREE.MeshStandardMaterial({ color: new THREE.Color(isDark ? "#94a3b8" : "#64748b"), roughness: 0.35, metalness: 0.6 });
+    /** Resaltado de un muro de cristal: naranja, pero sigue dejando ver el interior. */
+    var matCristalSeleccionado = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(0xf97316),
+      emissive: new THREE.Color(0xf97316),
+      emissiveIntensity: 0.5,
+      transparent: true,
+      opacity: 0.45,
+      depthWrite: false,
+    });
+    /** Muebles y loza conservan su color al resaltar: se pinta el espacio (piso y muros). */
+    var CONSERVAN_COLOR = [matLoza, matMadera, matMetal, matPizarron];
+    /** El edificio tiene muros de cristal en sus salones (lo indica la app). */
+    var murosCristal = cfg.murosCristal === true;
     /** Material invisible (sigue recibiendo toques) para la zona seleccionable de una forma propia. */
     var matInvisible = new THREE.MeshBasicMaterial({ visible: false });
+    /** Caja unitaria sin índices: base para unir las piezas de una forma en pocas mallas. */
+    var cajaPlana = cajaUnitaria.toNonIndexed();
 
     /** Caja (geometría compartida) en coordenadas locales de la forma. */
     function bloque(grupo, material, x, y, z, w, h, d) {
@@ -425,9 +463,65 @@
     }
 
     /**
-     * Resalta (o restaura) un espacio. Las aulas cambian el material de su caja; escaleras y
-     * baños pintan su forma propia y su caja sigue invisible (si no, taparía la forma).
-     * La loza (inodoros y lavabo) conserva su color para que se sigan distinguiendo.
+     * Une las piezas (cajas) de una forma en una malla por material: un salón con 40 pupitres
+     * se dibuja con 4 o 5 llamadas en vez de cientos (importante en celulares).
+     * Las cajas con un material por cara (escalones) se separan por cara.
+     */
+    function fusionar(grupo) {
+      grupo.updateMatrixWorld(true);
+      var porMaterial = []; // [{ material, piezas: [{ matriz, cara }] }]
+      function lote(material) {
+        for (var i = 0; i < porMaterial.length; i++) if (porMaterial[i].material === material) return porMaterial[i];
+        var nuevo = { material: material, piezas: [] };
+        porMaterial.push(nuevo);
+        return nuevo;
+      }
+      grupo.traverse(function (o) {
+        if (!o.isMesh || o.geometry !== cajaUnitaria) return;
+        for (var cara = 0; cara < 6; cara++) {
+          var mat = Array.isArray(o.material) ? o.material[cara] : o.material;
+          lote(mat).piezas.push({ matriz: o.matrixWorld, cara: cara });
+        }
+      });
+      var posBase = cajaPlana.attributes.position.array;
+      var norBase = cajaPlana.attributes.normal.array;
+      var v = new THREE.Vector3();
+      var normalM = new THREE.Matrix3();
+      var unida = new THREE.Group();
+      porMaterial.forEach(function (l) {
+        // Cada cara de la caja sin índices son 6 vértices consecutivos (orden px, nx, py, ny, pz, nz).
+        var pos = new Float32Array(l.piezas.length * 18);
+        var nor = new Float32Array(l.piezas.length * 18);
+        l.piezas.forEach(function (p, k) {
+          normalM.getNormalMatrix(p.matriz);
+          for (var j = 0; j < 6; j++) {
+            var s = (p.cara * 6 + j) * 3, t = (k * 6 + j) * 3;
+            v.set(posBase[s], posBase[s + 1], posBase[s + 2]).applyMatrix4(p.matriz);
+            pos[t] = v.x; pos[t + 1] = v.y; pos[t + 2] = v.z;
+            v.set(norBase[s], norBase[s + 1], norBase[s + 2]).applyMatrix3(normalM).normalize();
+            nor[t] = v.x; nor[t + 1] = v.y; nor[t + 2] = v.z;
+          }
+        });
+        var geo = new THREE.BufferGeometry();
+        geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+        geo.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
+        geo.computeBoundingSphere();
+        var malla = new THREE.Mesh(geo, l.material);
+        malla.raycast = function () {};
+        malla.userData.materialOriginal = l.material;
+        var transparente = l.material === matCristal;
+        malla.castShadow = !transparente;
+        malla.receiveShadow = !transparente;
+        if (transparente) malla.renderOrder = 2; // después de lo opaco
+        unida.add(malla);
+      });
+      return unida;
+    }
+
+    /**
+     * Resalta (o restaura) un espacio. Una caja simple cambia de material; las formas propias
+     * pintan sus muros y piso, y su caja sigue invisible (si no, taparía la forma).
+     * Muebles y loza conservan su color; el cristal se pinta translúcido.
      */
     function pintarSeleccion(mesh, seleccionado) {
       var forma = mesh.userData.forma;
@@ -437,8 +531,9 @@
       }
       forma.traverse(function (o) {
         var original = o.userData.materialOriginal;
-        if (!original || original === matLoza) return;
-        o.material = seleccionado ? materials.roomSelected : original;
+        if (!original || CONSERVAN_COLOR.indexOf(original) !== -1) return;
+        if (!seleccionado) o.material = original;
+        else o.material = original === matCristal ? matCristalSeleccionado : materials.roomSelected;
       });
     }
 
@@ -507,11 +602,146 @@
       return g;
     }
 
-    /** Forma propia para un espacio (escalera o baño), o null si se dibuja como caja. */
+    /**
+     * Salón: piso, muros con puerta, pizarrón, escritorio del docente y filas de pupitres
+     * mirando al pizarrón. Con cristal=true los muros son translúcidos con marco de aluminio.
+     */
+    function formaSalon(W, D, cristal) {
+      var g = new THREE.Group();
+      var largo = Math.max(W, D), ancho = Math.min(W, D);
+      var c = new THREE.Group(); // largo en X; el pizarrón queda en el lado x negativo
+      var muro = cristal ? matCristal : materials.roomWall;
+      var hMuro = cristal ? ALTURA_AULA * 0.8 : ALTURA_AULA * 0.7;
+      var e = cristal ? 0.15 : 0.35;
+      bloque(c, matPisoSalon, 0, 0, 0, largo, 0.12, ancho);
+
+      // Muros: el frente (z positivo) lleva la puerta cerca de la esquina opuesta al pizarrón.
+      var puerta = Math.min(2.4, largo * 0.25);
+      var xPuerta = largo / 2 - e - 0.6 - puerta / 2; // centro del hueco
+      var izq = (xPuerta - puerta / 2) - (-largo / 2), der = largo / 2 - (xPuerta + puerta / 2);
+      var tramos = [
+        [0, -ancho / 2 + e / 2, largo, e],
+        [-largo / 2 + izq / 2, ancho / 2 - e / 2, izq, e],
+        [largo / 2 - der / 2, ancho / 2 - e / 2, der, e],
+        [-largo / 2 + e / 2, 0, e, ancho],
+        [largo / 2 - e / 2, 0, e, ancho],
+      ];
+      tramos.forEach(function (t) { bloque(c, muro, t[0], 0, t[1], t[2], hMuro, t[3]); });
+      if (cristal) {
+        // Marco: perfil superior en cada tramo y postes en esquinas y en la puerta.
+        tramos.forEach(function (t) { bloque(c, matMarco, t[0], hMuro - 0.2, t[1], t[2] + 0.06, 0.2, t[3] + 0.06); });
+        var postes = [
+          [-largo / 2 + e / 2, -ancho / 2 + e / 2], [largo / 2 - e / 2, -ancho / 2 + e / 2],
+          [-largo / 2 + e / 2, ancho / 2 - e / 2], [largo / 2 - e / 2, ancho / 2 - e / 2],
+          [xPuerta - puerta / 2, ancho / 2 - e / 2], [xPuerta + puerta / 2, ancho / 2 - e / 2],
+        ];
+        postes.forEach(function (p) { bloque(c, matMarco, p[0], 0, p[1], 0.25, hMuro, 0.25); });
+      }
+
+      // Pizarrón y escritorio del docente
+      var xFrente = -largo / 2 + e;
+      bloque(c, matPizarron, xFrente + 0.08, 1.6, 0, 0.14, Math.min(2.2, hMuro * 0.45), Math.min(ancho * 0.6, 8));
+      var fondoEsc = Math.min(2.6, ancho * 0.3);
+      if (largo > 6) bloque(c, matMadera, xFrente + 1.7, 0, -ancho * 0.15, 1.0, 1.25, fondoEsc);
+
+      // Pupitres (tablero, asiento y respaldo) en una cuadrícula que cabe en el salón.
+      var x0 = xFrente + 3.6, x1 = largo / 2 - e - 0.9;
+      var z0 = -ancho / 2 + e + 0.9, z1 = ancho / 2 - e - 0.9;
+      var columnas = Math.min(8, Math.floor((x1 - x0) / 2.3) + 1);
+      var filas = Math.min(7, Math.floor((z1 - z0) / 2.0) + 1);
+      if (x1 - x0 > 1 && z1 - z0 > 1 && columnas > 0 && filas > 0) {
+        for (var i = 0; i < columnas; i++) {
+          var x = columnas === 1 ? (x0 + x1) / 2 : x0 + (x1 - x0) * i / (columnas - 1);
+          for (var j = 0; j < filas; j++) {
+            var z = filas === 1 ? (z0 + z1) / 2 : z0 + (z1 - z0) * j / (filas - 1);
+            bloque(c, matMadera, x, 1.25, z, 0.85, 0.12, 1.1);
+            bloque(c, matMetal, x + 0.75, 0, z, 0.7, 0.8, 0.8);
+            bloque(c, matMetal, x + 1.1, 0.8, z, 0.12, 0.9, 0.8);
+          }
+        }
+      }
+      if (D > W) c.rotation.y = Math.PI / 2;
+      g.add(c);
+      return g;
+    }
+
+    // Edificios del campus
+    var ALTURA_PISO_CAMPUS = 3.4;
+    var matVentana = new THREE.MeshStandardMaterial({ color: new THREE.Color(isDark ? "#0b3a53" : "#1e3a5f"), roughness: 0.15, metalness: 0.6 });
+    var matFachadaCristal = new THREE.MeshStandardMaterial({ color: new THREE.Color(isDark ? "#38bdf8" : "#7dd3fc"), roughness: 0.08, metalness: 0.5, emissive: new THREE.Color(isDark ? "#0c4a6e" : "#000000"), emissiveIntensity: 0.4 });
+    CONSERVAN_COLOR.push(matVentana);
+
+    /**
+     * Edificio del campus: plantas con losa marcada, franjas de ventanas en las cuatro
+     * fachadas y pretil en la azotea. Con cristal=true la fachada es casi toda de vidrio.
+     */
+    function formaEdificioCampus(W, D, pisos, cristal) {
+      var g = new THREE.Group();
+      var hp = ALTURA_PISO_CAMPUS;
+      var alto = hp * pisos;
+      var muro = materials.roomWall;
+      var losa = materials.roomTop;
+      var vidrio = cristal ? matFachadaCristal : matVentana;
+      bloque(g, muro, 0, 0, 0, W, alto, D);
+      for (var p = 0; p < pisos; p++) {
+        var y0 = p * hp;
+        // Losa entre pisos (sobresale un poco) y franja de ventanas en cada fachada.
+        if (p > 0) bloque(g, losa, 0, y0 - 0.15, 0, W + 0.5, 0.3, D + 0.5);
+        var hv = cristal ? hp * 0.72 : hp * 0.42;
+        var yv = y0 + (hp - hv) / 2 + 0.1;
+        var sale = 0.12;
+        if (cristal) {
+          bloque(g, vidrio, 0, yv, -D / 2 - sale / 2, W * 0.94, hv, sale);
+          bloque(g, vidrio, 0, yv, D / 2 + sale / 2, W * 0.94, hv, sale);
+          bloque(g, vidrio, -W / 2 - sale / 2, yv, 0, sale, hv, D * 0.9);
+          bloque(g, vidrio, W / 2 + sale / 2, yv, 0, sale, hv, D * 0.9);
+        } else {
+          // Ventanas individuales separadas por machones.
+          var nX = Math.max(2, Math.round(W / 3.2)), nZ = Math.max(1, Math.round(D / 3.2));
+          var paso, k;
+          paso = W / nX;
+          for (k = 0; k < nX; k++) {
+            var x = -W / 2 + paso * (k + 0.5);
+            bloque(g, vidrio, x, yv, -D / 2 - sale / 2, paso * 0.62, hv, sale);
+            bloque(g, vidrio, x, yv, D / 2 + sale / 2, paso * 0.62, hv, sale);
+          }
+          paso = D / nZ;
+          for (k = 0; k < nZ; k++) {
+            var z = -D / 2 + paso * (k + 0.5);
+            bloque(g, vidrio, -W / 2 - sale / 2, yv, z, sale, hv, paso * 0.62);
+            bloque(g, vidrio, W / 2 + sale / 2, yv, z, sale, hv, paso * 0.62);
+          }
+        }
+      }
+      // Azotea: losa y pretil perimetral
+      bloque(g, losa, 0, alto, 0, W + 0.4, 0.25, D + 0.4);
+      var e = 0.35, hPretil = 0.7;
+      bloque(g, muro, 0, alto + 0.25, -D / 2, W + 0.4, hPretil, e);
+      bloque(g, muro, 0, alto + 0.25, D / 2, W + 0.4, hPretil, e);
+      bloque(g, muro, -W / 2, alto + 0.25, 0, e, hPretil, D + 0.4);
+      bloque(g, muro, W / 2, alto + 0.25, 0, e, hPretil, D + 0.4);
+      return fusionar(g);
+    }
+
+    /** Edificios del campus con una sola planta. */
+    var CAMPUS_UNA_PLANTA = { cafeteria_escuela: true };
+    /** Edificios del campus con fachada de cristal. */
+    var CAMPUS_CRISTAL = { edificio_l: true };
+
+    /** Etiqueta 3D de un edificio del campus: "EDIFICIO / A", "CAFETERÍA". */
+    function etiquetaEdificio(id) {
+      var m = /^edificio_([a-z0-9]+)$/.exec(String(id).toLowerCase());
+      if (m) return { categoria: "EDIFICIO", codigo: m[1].toUpperCase() };
+      return Etiquetas.etiqueta(id);
+    }
+
+    /** Forma propia de un espacio: escalera, baño o (todo lo demás) salón. */
     function formaPropia(tipo, W, D) {
-      if (tipo === "stairs") return formaEscalera(W, D);
-      if (tipo === "restroom") return formaBano(W, D);
-      return null;
+      var forma;
+      if (tipo === "stairs") forma = formaEscalera(W, D);
+      else if (tipo === "restroom") forma = formaBano(W, D);
+      else forma = formaSalon(W, D, murosCristal);
+      return fusionar(forma);
     }
 
     /**
@@ -613,7 +843,114 @@
           var el = svgEl.querySelector('[id="' + id + '"]');
           return el ? cajaDe(el) : null;
         },
+        /** Límites del lienzo del SVG (viewBox) en coordenadas raíz. */
+        lienzo: (function () {
+          var vb = svgEl.viewBox && svgEl.viewBox.baseVal;
+          if (vb && vb.width > 0 && vb.height > 0) return { minX: vb.x, minY: vb.y, maxX: vb.x + vb.width, maxY: vb.y + vb.height };
+          return limitesDe(cajas);
+        })(),
+        /**
+         * Dibuja el plano (sin textos ni espacios ocultos) en un canvas 2D con Path2D, con
+         * los colores del tema según la luminosidad original. aCanvas(x, y) -> [px, py] es lineal.
+         * No usa <img> del SVG: el canvas nunca queda "contaminado" y no hay red.
+         */
+        dibujarFondo: function (ctx, lim, escala, paleta) {
+          var formas = svgEl.querySelectorAll("path, rect, polygon");
+          for (var i = 0; i < formas.length; i++) {
+            var el = formas[i];
+            if (el.closest("defs")) continue;
+            var est = window.getComputedStyle(el);
+            // El sandbox es invisible (visibility: hidden se hereda): solo cuenta display:none
+            // del propio elemento o de un grupo del SVG que lo contenga.
+            var oculto = false;
+            for (var an = el; an && an !== svgEl; an = an.parentNode) {
+              if (an.nodeType === 1 && window.getComputedStyle(an).display === "none") { oculto = true; break; }
+            }
+            if (oculto) continue;
+            var trazo;
+            var tag = el.tagName.toLowerCase();
+            try {
+              if (tag === "path") {
+                trazo = new Path2D(el.getAttribute("d") || "");
+              } else if (tag === "rect") {
+                trazo = new Path2D();
+                trazo.rect(parseFloat(el.getAttribute("x")) || 0, parseFloat(el.getAttribute("y")) || 0, parseFloat(el.getAttribute("width")) || 0, parseFloat(el.getAttribute("height")) || 0);
+              } else {
+                trazo = new Path2D("M" + (el.getAttribute("points") || "").trim() + "Z");
+              }
+            } catch (_e) {
+              continue;
+            }
+            var ctm = el.getCTM();
+            var m = ctm && rootInv ? rootInv.multiply(ctm) : { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+            ctx.setTransform(m.a * escala, m.b * escala, m.c * escala, m.d * escala, (m.e - lim.minX) * escala, (m.f - lim.minY) * escala);
+            var relleno = paleta(est.fill, parseFloat(est.fillOpacity));
+            if (relleno) {
+              ctx.fillStyle = relleno;
+              ctx.fill(trazo, est.fillRule === "evenodd" ? "evenodd" : "nonzero");
+            }
+            var linea = est.stroke && est.stroke !== "none" ? paleta(est.stroke, parseFloat(est.strokeOpacity)) : null;
+            var grosor = parseFloat(est.strokeWidth) || 0;
+            if (linea && grosor > 0) {
+              ctx.strokeStyle = linea;
+              ctx.lineWidth = grosor;
+              ctx.stroke(trazo);
+            }
+          }
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+        },
       };
+    }
+
+    var esCampus = cfg.modo === "campus";
+
+    /**
+     * Suelo del campus: el mapa general (calles, estacionamiento, andadores y huellas de los
+     * edificios) dibujado en una textura sobre una losa del tamaño del lienzo del SVG.
+     */
+    function construirSueloCampus(plano, scale, cx, cy) {
+      var lim = plano.lienzo;
+      var anchoSvg = lim.maxX - lim.minX, altoSvg = lim.maxY - lim.minY;
+      var maxLado = gamaBaja ? 1024 : 2048;
+      var esc = maxLado / Math.max(anchoSvg, altoSvg);
+      var canvas = document.createElement("canvas");
+      canvas.width = Math.max(2, Math.round(anchoSvg * esc));
+      canvas.height = Math.max(2, Math.round(altoSvg * esc));
+      var ctx = canvas.getContext("2d");
+      // Zonas abiertas en verde suave; lo dibujado (calles, edificios) en grises del tema.
+      ctx.fillStyle = isDark ? "#132219" : "#dcebd6";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      var oscuro = isDark ? [16, 21, 31] : [71, 85, 105];
+      var claro = isDark ? [40, 52, 72] : [241, 245, 249];
+      function paleta(color, opacidad) {
+        var m = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?/.exec(color || "");
+        if (!m) return null;
+        var a = (m[4] !== undefined ? parseFloat(m[4]) : 1) * (isNaN(opacidad) ? 1 : opacidad);
+        if (a <= 0.01) return null;
+        var L = (0.299 * m[1] + 0.587 * m[2] + 0.114 * m[3]) / 255;
+        // Blanco puro = fondo del dibujo: se deja ver el verde.
+        if (L > 0.97) return null;
+        var c = [0, 1, 2].map(function (i) { return Math.round(oscuro[i] + (claro[i] - oscuro[i]) * L); });
+        return "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + a + ")";
+      }
+      try {
+        plano.dibujarFondo(ctx, lim, esc, paleta);
+      } catch (_e) {
+        // Sin dibujo del suelo: queda el color base (el campus sigue siendo usable).
+      }
+      var textura = new THREE.CanvasTexture(canvas);
+      textura.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+      var w = anchoSvg * scale, d = altoSvg * scale;
+      var px = ((lim.minX + lim.maxX) / 2 - cx) * scale, pz = ((lim.minY + lim.maxY) / 2 - cy) * scale;
+      var losa = new THREE.Mesh(new THREE.BoxGeometry(w + 8, 2, d + 8), materials.slab);
+      losa.position.set(px, -1.02, pz);
+      losa.receiveShadow = true;
+      floorGroup.add(losa);
+      var suelo = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshStandardMaterial({ map: textura, roughness: 0.9, metalness: 0 }));
+      suelo.rotation.x = -Math.PI / 2;
+      suelo.position.set(px, 0.03, pz);
+      suelo.receiveShadow = true;
+      floorGroup.add(suelo);
     }
 
     function buildFloorFromSvg(svgText) {
@@ -639,20 +976,24 @@
       var floorW = buildingW * scale + 18;
       var floorD = buildingD * scale + 18;
 
-      // A. Suelo Base (Slab)
-      var slabGeo = new THREE.BoxGeometry(floorW, 2, floorD);
-      var slabMesh = new THREE.Mesh(slabGeo, materials.slab);
-      slabMesh.position.set(0, -1, 0);
-      slabMesh.receiveShadow = true;
-      floorGroup.add(slabMesh);
+      if (esCampus) {
+        construirSueloCampus(plano, scale, buildingCenterX, buildingCenterY);
+      } else {
+        // A. Suelo Base (Slab)
+        var slabGeo = new THREE.BoxGeometry(floorW, 2, floorD);
+        var slabMesh = new THREE.Mesh(slabGeo, materials.slab);
+        slabMesh.position.set(0, -1, 0);
+        slabMesh.receiveShadow = true;
+        floorGroup.add(slabMesh);
 
-      // B. Capa de Pasillos
-      var corridorGeo = new THREE.PlaneGeometry(floorW - 4, floorD - 4);
-      var corridorMesh = new THREE.Mesh(corridorGeo, materials.corridor);
-      corridorMesh.rotation.x = -Math.PI / 2;
-      corridorMesh.position.set(0, 0.04, 0);
-      corridorMesh.receiveShadow = true;
-      floorGroup.add(corridorMesh);
+        // B. Capa de Pasillos
+        var corridorGeo = new THREE.PlaneGeometry(floorW - 4, floorD - 4);
+        var corridorMesh = new THREE.Mesh(corridorGeo, materials.corridor);
+        corridorMesh.rotation.x = -Math.PI / 2;
+        corridorMesh.position.set(0, 0.04, 0);
+        corridorMesh.receiveShadow = true;
+        floorGroup.add(corridorMesh);
+      }
 
       // C. Aulas extruidas y billboards
       var roomExtrudeHeight = ALTURA_AULA;
@@ -664,10 +1005,13 @@
 
           var worldX = (room.cx - buildingCenterX) * scale;
           var worldZ = (room.cy - buildingCenterY) * scale;
-          var serviceType = Etiquetas.tipoServicio(room.id);
-          // Escaleras y baños tienen forma propia; su caja queda invisible (solo para tocarla
-          // y para resaltarla al seleccionarla).
-          var forma = formaPropia(serviceType, boxW, boxD);
+          var serviceType = esCampus ? null : Etiquetas.tipoServicio(room.id);
+          var idMin = room.id.toLowerCase();
+          var pisos = esCampus ? (CAMPUS_UNA_PLANTA[idMin] ? 1 : 2) : 1;
+          var altoEspacio = esCampus ? ALTURA_PISO_CAMPUS * pisos + 1 : roomExtrudeHeight;
+          // Cada espacio tiene forma propia (salón, escalera, baño o edificio del campus); su
+          // caja queda invisible (solo para tocarla y para resaltarla al seleccionarla).
+          var forma = esCampus ? formaEdificioCampus(boxW, boxD, pisos, !!CAMPUS_CRISTAL[idMin]) : formaPropia(serviceType, boxW, boxD);
           var defaultMat = forma ? matInvisible : [
             materials.roomWall,
             materials.roomWall,
@@ -678,8 +1022,8 @@
           ];
 
           var roomMesh = new THREE.Mesh(cajaUnitaria, defaultMat);
-          roomMesh.scale.set(boxW, roomExtrudeHeight, boxD);
-          roomMesh.position.set(worldX, roomExtrudeHeight / 2, worldZ);
+          roomMesh.scale.set(boxW, altoEspacio, boxD);
+          roomMesh.position.set(worldX, altoEspacio / 2, worldZ);
           // SVG (x, y hacia abajo) -> mundo (x, z): una rotación θ del plano equivale a rotation.y = -θ
           roomMesh.rotation.y = -room.angle;
           roomMesh.castShadow = !forma;
@@ -690,7 +1034,6 @@
             roomMesh.userData.forma = forma;
             forma.position.set(worldX, 0, worldZ);
             forma.rotation.y = -room.angle;
-            forma.traverse(function (o) { o.castShadow = true; o.receiveShadow = true; });
             floorGroup.add(forma);
           } else {
             var edgeLines = new THREE.LineSegments(contornoUnitario, materials.edge);
@@ -710,10 +1053,10 @@
           if (serviceType) {
             billboardSprite = createServiceBillboard(serviceType);
           } else {
-            var et = Etiquetas.etiqueta(room.id);
+            var et = esCampus ? etiquetaEdificio(room.id) : Etiquetas.etiqueta(room.id);
             billboardSprite = createClassroomBillboard(et.codigo, et.categoria);
           }
-          billboardSprite.position.set(worldX, roomExtrudeHeight + 4.2, worldZ);
+          billboardSprite.position.set(worldX, altoEspacio + 4.2, worldZ);
 
           billboardSprite.userData = { id: room.id, name: room.id, isBillboard: true, roomMesh: roomMesh };
           floorGroup.add(billboardSprite);
@@ -825,8 +1168,9 @@
         caja.scale.set(w, ALTURA_AULA, d);
         caja.position.set(p.x, ALTURA_AULA / 2, p.z);
         caja.rotation.y = -r.angle;
-        caja.userData = { id: r.id, esEspacio: true };
-        caja.raycast = function () {};
+        // Se puede tocar: la app abre esa planta con el espacio resaltado.
+        caja.userData = { id: r.id, name: r.id, esEspacio: true, plantaOtra: true };
+        interactiveObjects.push(caja);
         if (forma) {
           forma.position.set(p.x, 0, p.z);
           forma.rotation.y = -r.angle;
@@ -842,7 +1186,8 @@
         var et = tipo ? null : Etiquetas.etiqueta(r.id);
         var cartel = tipo ? createServiceBillboard(tipo) : createClassroomBillboard(et.codigo, et.categoria);
         cartel.position.set(p.x, ALTURA_AULA + 4.2, p.z);
-        cartel.raycast = function () {};
+        cartel.userData = { id: r.id, roomMesh: caja };
+        interactiveObjects.push(cartel);
         grupoFantasma.add(cartel);
       });
 
@@ -859,6 +1204,10 @@
       grupoFantasma.visible = false;
       scene.add(grupoFantasma);
       return true;
+    }
+
+    function plantaOtra() {
+      return cfg.plantaActiva === "alta" ? "baja" : "alta";
     }
 
     function alternarPlantas(mostrar) {
@@ -988,7 +1337,7 @@
       pedirRender();
 
       if (notificar !== false) {
-        sendToHost({ type: "AULA_CLICK", id: targetMesh.userData.id, name: targetMesh.userData.name });
+        sendToHost({ type: "AULA_CLICK", id: targetMesh.userData.id, name: targetMesh.userData.name, planta: cfg.plantaActiva });
       }
     }
 
@@ -1005,11 +1354,16 @@
       // Primer impacto que corresponda a un aula (o a su etiqueta).
       for (var i = 0; i < intersects.length; i++) {
         var hit = intersects[i].object;
-        var targetMesh = hit.userData.roomMesh || (hit.userData.isRoom ? hit : null);
-        if (targetMesh && targetMesh.userData && targetMesh.userData.id) {
-          selectRoomById(targetMesh.userData.id, true, true);
+        var targetMesh = hit.userData.roomMesh || (hit.userData.isRoom || hit.userData.plantaOtra ? hit : null);
+        if (!targetMesh || !targetMesh.userData || !targetMesh.userData.id) continue;
+        if (targetMesh.userData.plantaOtra) {
+          // La otra planta solo se puede tocar mientras se ve (el raycaster no mira "visible").
+          if (!grupoFantasma || !grupoFantasma.visible) continue;
+          sendToHost({ type: "AULA_CLICK", id: targetMesh.userData.id, name: targetMesh.userData.id, planta: plantaOtra() });
           return;
         }
+        selectRoomById(targetMesh.userData.id, true, true);
+        return;
       }
     }
 
@@ -1181,7 +1535,7 @@
     }
 
     function vistaInicial() {
-      spherical.radius = 170;
+      spherical.radius = RADIO_INICIAL;
       spherical.theta = Math.PI / 4;
       spherical.phi = Math.PI / 3.2;
       moverCamaraA(new THREE.Vector3(0, 0, 0));
@@ -1264,6 +1618,8 @@
 
     // Selección inicial (misma lógica de búsqueda que las selecciones posteriores)
     if (selectedTargetId) selectRoomById(selectedTargetId, true, false);
+    // Vista interior desde el campus: ambas plantas a la vez.
+    if (cfg.vistaApilada && grupoFantasma) alternarPlantas(true);
 
     motor = {
       seleccionar: function (id) { selectRoomById(id, true, false); },
@@ -1306,6 +1662,8 @@
           plantasApiladasVisibles: !!(grupoFantasma && grupoFantasma.visible),
           aqui: !!anilloAqui,
           movimientoReducido: movimientoReducido,
+          murosCristal: murosCristal,
+          modo: cfg.modo,
           radio: Math.round(spherical.radius),
           objetivo: [Math.round(cameraTarget.x * 10) / 10, Math.round(cameraTarget.z * 10) / 10],
         };
@@ -1326,10 +1684,22 @@
         };
       },
       /** Posición en pantalla (px del iframe) del centro superior de un aula. */
-      pantalla: function (id) {
-        var mesh = roomMeshes[String(id).toLowerCase()];
+      pantalla: function (id, otraPlanta) {
+        var clave = String(id).toLowerCase();
+        var mesh = null;
+        if (otraPlanta) {
+          // Espacio de la planta apilada (posición en el mundo: el grupo está desplazado en Y).
+          if (!grupoFantasma) return null;
+          grupoFantasma.children.forEach(function (c) {
+            if (c.userData.plantaOtra && String(c.userData.id).toLowerCase() === clave) mesh = c;
+          });
+        } else {
+          mesh = roomMeshes[clave];
+        }
         if (!mesh) return null;
-        var p = new THREE.Vector3(mesh.position.x, mesh.position.y * 2, mesh.position.z).project(camera);
+        mesh.updateMatrixWorld(true);
+        var centro = new THREE.Vector3().setFromMatrixPosition(mesh.matrixWorld);
+        var p = new THREE.Vector3(centro.x, centro.y + mesh.scale.y / 2, centro.z).project(camera);
         var r = container.getBoundingClientRect();
         return { x: r.left + ((p.x + 1) / 2) * r.width, y: r.top + ((1 - p.y) / 2) * r.height };
       },
@@ -1380,6 +1750,7 @@
     // 10. Bucle de Renderizado bajo demanda
     var INTERVALO_PULSO_MS = 50; // pulso del aula seleccionada a ~20 cuadros/s
     var ultimoPulso = 0;
+    var ultimoCuadroCamara = 0;
 
     function cuadro() {
       frameProgramado = false;
@@ -1387,10 +1758,16 @@
       var continuar = false;
 
       if (targetCameraLerp) {
-        cameraTarget.lerp(targetCameraLerp, 0.07);
+        // Suavizado según el tiempo real (no por cuadro): dura lo mismo a 60 o a 15 cuadros/s.
+        var t = performance.now();
+        // Más de 250 ms desde el último cuadro = el movimiento recién empieza (paso normal).
+        var dt = t - ultimoCuadroCamara <= 250 ? t - ultimoCuadroCamara : 16.7;
+        ultimoCuadroCamara = t;
+        cameraTarget.lerp(targetCameraLerp, 1 - Math.pow(1 - 0.07, dt / 16.7));
         updateCameraPosition();
         if (cameraTarget.distanceTo(targetCameraLerp) < 0.15) {
           targetCameraLerp = null;
+          ultimoCuadroCamara = 0;
         } else {
           continuar = true;
         }
@@ -1400,7 +1777,10 @@
         var ahora = performance.now();
         if (ahora - ultimoPulso >= INTERVALO_PULSO_MS) {
           ultimoPulso = ahora;
-          if (currentSelectedMesh) materials.roomSelected.emissiveIntensity = 0.45 + 0.25 * Math.sin(ahora * 0.006);
+          if (currentSelectedMesh) {
+            materials.roomSelected.emissiveIntensity = 0.45 + 0.25 * Math.sin(ahora * 0.006);
+            matCristalSeleccionado.emissiveIntensity = materials.roomSelected.emissiveIntensity;
+          }
           if (anilloAqui) {
             var fase = (ahora % 1800) / 1800;
             anilloAqui.scale.setScalar(1 + fase * 1.6);
@@ -1411,6 +1791,7 @@
         continuar = true;
       } else if (currentSelectedMesh) {
         materials.roomSelected.emissiveIntensity = 0.6;
+        matCristalSeleccionado.emissiveIntensity = 0.6;
       }
 
       if (necesitaRender) {

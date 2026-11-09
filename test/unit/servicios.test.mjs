@@ -2,7 +2,7 @@
 import { test, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { llamadas, respuestas, reiniciar } from "../stubs/supabase.mjs";
-import { limpiarTerminoBusqueda, obtenerProfesores } from "../../src/services/profesoresService.ts";
+import { limpiarTerminoBusqueda, obtenerCarreras, obtenerProfesores } from "../../src/services/profesoresService.ts";
 import { fetchAvisos } from "../../src/services/avisosService.ts";
 import { descargarPlanoSvg, getPlanoEdificioUrl, getMapaGeneralUrl, PlanoError } from "../../src/services/mapasService.ts";
 
@@ -21,45 +21,62 @@ test("limpiarTerminoBusqueda elimina la sintaxis de filtros de PostgREST", () =>
 });
 
 test("obtenerProfesores sin búsqueda pide columnas explícitas (nunca select=*)", async () => {
-  respuestas.tabla = { data: [{ id: 1, docente: "Ana", materia: "Cálculo", dia: "Lunes", hora_inicio: "07:00", hora_fin: "08:00", aula: "A1" }], error: null };
+  respuestas.tabla = {
+    data: [{ id: 1, materia: "Cálculo", grupo: "1A", dia: "Lunes", hora_inicio: "07:00", hora_fin: "08:00", aula: "A1", profesores: { nombre: "Ana", carreras: { nombre: "ISC" } } }],
+    error: null,
+  };
   const r = await obtenerProfesores("");
   assert.equal(llamadas.length, 1);
-  assert.equal(llamadas[0].tabla, "horarios_docentes");
-  assert.equal(llamadas[0].select, "id,docente,materia,grupo,dia,hora_inicio,hora_fin,aula");
-  assert.equal(r[0].id, "1");
+  assert.equal(llamadas[0].tabla, "horarios");
+  assert.doesNotMatch(llamadas[0].select, /\*/);
+  assert.equal(llamadas[0].or, null);
+  assert.deepEqual(r[0], { id: "1", docente: "Ana", carrera: "ISC", materia: "Cálculo", grupo: "1A", dia: "Lunes", hora_inicio: "07:00", hora_fin: "08:00", aula: "A1" });
 });
 
-test("obtenerProfesores usa la RPC y proyecta solo columnas públicas", async () => {
-  respuestas.rpc = { data: [{ id: 7, docente: "Ana", materia: "Redes", dia: "Martes", hora_inicio: "09:00", hora_fin: "10:00", aula: "LR", correo: "privado@x", rfc: "SECRETO" }], error: null };
+test("obtenerProfesores proyecta solo columnas públicas", async () => {
+  respuestas.tabla = {
+    data: [{ id: 7, materia: "Redes", dia: "Martes", hora_inicio: "09:00", hora_fin: "10:00", aula: "LR", correo: "privado@x", profesores: { nombre: "Ana", rfc: "SECRETO", carreras: null } }],
+    error: null,
+  };
   const r = await obtenerProfesores("redes");
-  assert.deepEqual(llamadas[0], { tipo: "rpc", nombre: "buscar_docentes_v3", args: { search_term: "redes" } });
-  assert.deepEqual(Object.keys(r[0]).sort(), ["aula", "dia", "docente", "grupo", "hora_fin", "hora_inicio", "id", "materia"]);
+  assert.deepEqual(Object.keys(r[0]).sort(), ["aula", "carrera", "dia", "docente", "grupo", "hora_fin", "hora_inicio", "id", "materia"]);
   assert.ok(!JSON.stringify(r).includes("SECRETO"));
+  assert.ok(!JSON.stringify(r).includes("privado"));
 });
 
-test("si la RPC falla, el filtro .or() solo recibe el término limpio", async () => {
+test("el filtro .or() solo recibe el término limpio", async () => {
   await obtenerProfesores("x),id.gt.(0,docente.eq.y");
   const consulta = llamadas.find((l) => l.tipo === "from");
-  assert.ok(consulta, "debe usar la consulta de respaldo");
-  assert.equal(llamadas.find((l) => l.tipo === "rpc").args.search_term, "x id gt 0 docente eq y");
+  assert.equal(consulta.tabla, "horarios");
+  assert.match(consulta.select, /profesores!inner/);
   // exactamente 4 condiciones ilike, ninguna inyectada
   assert.equal(consulta.or.split(",").length, 4);
-  assert.match(consulta.or, /^docente\.ilike\.%x id gt 0 docente eq y%,materia\.ilike\./);
+  assert.match(consulta.or, /^materia\.ilike\.%x id gt 0 docente eq y%,aula\.ilike\./);
+  assert.match(consulta.or, /profesores\.nombre\.ilike\.%x id gt 0 docente eq y%$/);
 });
 
 test("obtenerProfesores devuelve [] ante un error de la base", async () => {
   respuestas.tabla = { data: null, error: { message: "relation does not exist" } };
   assert.deepEqual(await obtenerProfesores("ana"), []);
+  assert.deepEqual(await obtenerProfesores(""), []);
+});
+
+test("obtenerCarreras antepone TODAS y tolera errores", async () => {
+  respuestas.tabla = { data: [{ nombre: "ISC" }], error: null };
+  assert.deepEqual(await obtenerCarreras(), ["TODAS", "ISC"]);
+  assert.equal(llamadas[0].tabla, "carreras");
+  respuestas.tabla = { data: null, error: { message: "x" } };
+  assert.deepEqual(await obtenerCarreras(), ["TODAS"]);
 });
 
 // ------------------------------------------------------------ Avisos
 
-test("fetchAvisos pide columnas explícitas ordenadas por fecha", async () => {
+test("fetchAvisos pide columnas explícitas ordenadas por fecha de creación", async () => {
   respuestas.tabla = { data: [{ id: "1", titulo: "Hola" }], error: null };
   const r = await fetchAvisos();
   assert.equal(llamadas[0].tabla, "avisos");
   assert.doesNotMatch(llamadas[0].select, /\*/);
-  assert.deepEqual(llamadas[0].order, ["fecha_publicacion", { ascending: false }]);
+  assert.deepEqual(llamadas[0].order, ["created_at", { ascending: false }]);
   assert.equal(r.length, 1);
   respuestas.tabla = { data: null, error: { message: "x" } };
   assert.deepEqual(await fetchAvisos(), []);

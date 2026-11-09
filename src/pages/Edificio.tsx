@@ -324,7 +324,11 @@ const Edificio = ({ route }: any) => {
                     planta={planta}
                     selectedRoomId={targetSvgId}
                     isDarkMode={isDarkMode}
-                    onRoomClick={(id) => setAulaResaltada(normalizarAulaParam(id)?.toUpperCase() ?? null)}
+                    onRoomClick={(id, plantaDelEspacio) => {
+                      // Un espacio de la otra planta (vista apilada) abre esa planta.
+                      if (plantaDelEspacio !== planta) setPlanta(plantaDelEspacio);
+                      setAulaResaltada(normalizarAulaParam(id)?.toUpperCase() ?? null);
+                    }}
                     onError={alFallar3D}
                     onSeleccionLimpiada={() => setAulaResaltada(null)}
                     svgSecundario={svgOtraPlanta}

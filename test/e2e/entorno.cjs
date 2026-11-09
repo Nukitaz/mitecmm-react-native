@@ -86,8 +86,11 @@ function cabecerasDe(url) {
 
 // ------------------------------------------------------------------ Supabase falso
 
+// Con 3 o más avisos la marquesina se anima (con menos se muestran fijos).
 const AVISOS = [
-  { id: "1", titulo: "Aviso de prueba <img src=x onerror=top.__pwned=1>", contenido: "Contenido", fecha_publicacion: "2026-11-01", es_urgente: true, subtitulo: null },
+  { id: "1", categoria: "Urgente", titulo: "Aviso de prueba <img src=x onerror=top.__pwned=1>", descripcion: "Contenido", fecha: "2026-11-01", created_at: "2026-11-01T10:00:00Z" },
+  { id: "2", categoria: "General", titulo: "Segundo aviso", descripcion: "Contenido", fecha: "2026-10-31", created_at: "2026-10-31T10:00:00Z" },
+  { id: "3", categoria: "General", titulo: "Tercer aviso", descripcion: "Contenido", fecha: "2026-10-30", created_at: "2026-10-30T10:00:00Z" },
 ];
 
 const HORARIOS = [
@@ -115,12 +118,17 @@ function respuestaSupabase(peticion) {
     return { status: 200, headers: CORS, contentType: "image/svg+xml", body: fs.readFileSync(archivo, "utf8") };
   }
   if (url.pathname === "/rest/v1/avisos") return json(AVISOS);
-  if (url.pathname === "/rest/v1/horarios_docentes") return json(HORARIOS);
-  if (url.pathname === "/rest/v1/rpc/buscar_docentes_v3") {
-    let termino = "";
-    try { termino = JSON.parse(peticion.postData() || "{}").search_term || ""; } catch (_) {}
-    const t = termino.toUpperCase();
-    return json(HORARIOS.filter((h) => [h.docente, h.materia, h.aula, h.grupo].some((c) => c.toUpperCase().includes(t))));
+  if (url.pathname === "/rest/v1/carreras") return json([{ nombre: "INGENIERÍA EN SISTEMAS" }]);
+  if (url.pathname === "/rest/v1/horarios") {
+    // Respuesta anidada como la de PostgREST: horarios -> profesores -> carreras
+    const anidar = (h) => ({
+      id: h.id, materia: h.materia, grupo: h.grupo, dia: h.dia, hora_inicio: h.hora_inicio, hora_fin: h.hora_fin, aula: h.aula,
+      profesores: { nombre: h.docente, carreras: { nombre: "INGENIERÍA EN SISTEMAS" } },
+    });
+    const or = url.searchParams.get("or");
+    if (!or) return json(HORARIOS.map(anidar));
+    const t = (or.match(/ilike\.%([^%]*)%/)?.[1] || "").toUpperCase();
+    return json(HORARIOS.filter((h) => [h.docente, h.materia, h.aula, h.grupo].some((c) => c.toUpperCase().includes(t))).map(anidar));
   }
   return json({ message: "ruta no simulada" }, 404);
 }
@@ -203,9 +211,9 @@ async function clicEnKiosco(pagina, selectorOId) {
 }
 
 /** Clic real del ratón sobre el centro (en pantalla) de un aula del 3D. */
-async function clicEnAula(pagina, id) {
+async function clicEnAula(pagina, id, otraPlanta = false) {
   const caja = await (await pagina.$("iframe")).boundingBox();
-  const p = await kiosco(pagina).evaluate((id) => window.__kiosco.pantalla(id), id);
+  const p = await kiosco(pagina).evaluate((id, o) => window.__kiosco.pantalla(id, o), id, otraPlanta);
   await pagina.mouse.click(caja.x + p.x, caja.y + p.y);
 }
 

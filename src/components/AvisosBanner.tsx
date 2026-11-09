@@ -16,71 +16,6 @@ import { fetchAvisos, type Aviso } from "../services/avisosService";
 import { useTheme } from "../context/ThemeContext";
 import { useReduceMotion } from "../hooks/useReduceMotion";
 
-const formatFecha = (iso: string) => {
-  try {
-    return new Date(iso).toLocaleDateString("es-MX", {
-      day: "2-digit",
-      month: "long",
-      year: "numeric",
-    });
-  } catch {
-    return iso;
-  }
-};
-
-/** Renderiza el subtítulo destacando los textos urgentes en ROJO */
-const renderSubtitulo = (
-  texto: string,
-  isDarkMode: boolean,
-  esUrgente?: boolean
-) => {
-  const idx = texto.indexOf(":");
-  const baseColor = esUrgente
-    ? styles.textUrgent
-    : isDarkMode
-    ? styles.subDark
-    : styles.subLight;
-
-  if (idx === -1) {
-    return (
-      <Text
-        numberOfLines={1}
-        style={[
-          styles.tickerText,
-          baseColor,
-          Platform.OS === "web" && ({ whiteSpace: "nowrap" } as any),
-        ]}
-      >
-        {texto}
-      </Text>
-    );
-  }
-
-  const label = texto.slice(0, idx);
-  const rest = texto.slice(idx);
-
-  return (
-    <Text
-      numberOfLines={1}
-      style={[
-        styles.tickerText,
-        baseColor,
-        Platform.OS === "web" && ({ whiteSpace: "nowrap" } as any),
-      ]}
-    >
-      <Text
-        style={[
-          styles.textBold,
-          esUrgente ? styles.textUrgentBold : !isDarkMode && styles.textBoldLight,
-        ]}
-      >
-        {label}
-      </Text>
-      {rest}
-    </Text>
-  );
-};
-
 export const AvisosBanner = () => {
   const insets = useSafeAreaInsets();
   const { isDarkMode } = useTheme();
@@ -104,17 +39,17 @@ export const AvisosBanner = () => {
     loadAvisos();
   }, []);
 
-  // Asegura items suficientes para evitar huecos en la animación
+  // Controlamos la animación según la cantidad de avisos
+  const isAnimated = avisos.length >= 3;
   const baseList = useMemo(() => {
     if (avisos.length === 0) return [];
-    if (avisos.length === 1) return [...avisos, ...avisos, ...avisos, ...avisos];
-    if (avisos.length === 2) return [...avisos, ...avisos];
-    return avisos;
-  }, [avisos]);
+    if (!isAnimated) return avisos; // Si son pocos, mostramos la lista normal
+    return [...avisos, ...avisos, ...avisos, ...avisos];
+  }, [avisos, isAnimated]);
 
-  // Animación continua y fluida para Android / iOS
+  // Animación continua y fluida para Android / iOS (solo si hay más de 2 avisos)
   useEffect(() => {
-    if (Platform.OS === "web" || reducirMovimiento || singleWidth === 0 || baseList.length === 0) return;
+    if (Platform.OS === "web" || reducirMovimiento || singleWidth === 0 || baseList.length === 0 || !isAnimated) return;
 
     animatedValue.setValue(0);
     const duration = Math.max(12000, (singleWidth / 42) * 1000);
@@ -130,7 +65,9 @@ export const AvisosBanner = () => {
     animation.start();
 
     return () => animation.stop();
-  }, [singleWidth, baseList, animatedValue, reducirMovimiento]);
+  }, [singleWidth, baseList, animatedValue, reducirMovimiento, isAnimated]);
+
+  const esUrgente = (categoria: string) => categoria.toLowerCase() === "urgente";
 
   const renderTickerItem = (a: Aviso, key: string) => (
     <TouchableOpacity
@@ -139,28 +76,24 @@ export const AvisosBanner = () => {
       onPress={() => setSelected(a)}
       activeOpacity={0.7}
     >
-      {a.es_urgente && (
+      {esUrgente(a.categoria) && (
         <AlertTriangle
           size={13}
           color="#f43f5e"
           style={styles.urgentIcon}
         />
       )}
-      {a.subtitulo ? (
-        renderSubtitulo(a.subtitulo, isDarkMode, a.es_urgente)
-      ) : (
-        <Text
-          numberOfLines={1}
-          style={[
-            styles.tickerText,
-            !isDarkMode && styles.tickerTextLight,
-            a.es_urgente && styles.tickerTextUrgent,
-            Platform.OS === "web" && ({ whiteSpace: "nowrap" } as any),
-          ]}
-        >
-          {a.titulo}
-        </Text>
-      )}
+      <Text
+        numberOfLines={1}
+        style={[
+          styles.tickerText,
+          !isDarkMode && styles.tickerTextLight,
+          esUrgente(a.categoria) && styles.tickerTextUrgent,
+          Platform.OS === "web" && ({ whiteSpace: "nowrap" } as any),
+        ]}
+      >
+        {a.titulo}
+      </Text>
     </TouchableOpacity>
   );
 
@@ -196,7 +129,7 @@ export const AvisosBanner = () => {
           </TouchableOpacity>
         </View>
 
-        {/* Marquee en movimiento */}
+        {/* Contenedor del texto de los avisos */}
         <View style={styles.marqueeContainer}>
           {baseList.length === 0 ? (
             <Text
@@ -207,8 +140,8 @@ export const AvisosBanner = () => {
             >
               Sin avisos por el momento
             </Text>
-          ) : reducirMovimiento ? (
-            /* Sin animación: una sola copia de los avisos, deslizable a mano */
+          ) : !isAnimated || reducirMovimiento ? (
+            /* Pocos avisos o "reducir movimiento": una sola copia, deslizable a mano */
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -217,7 +150,7 @@ export const AvisosBanner = () => {
               {avisos.map((a) => renderTickerItem(a, `s-${a.id}`))}
             </ScrollView>
           ) : Platform.OS === "web" ? (
-            /* Versión Web: CSS nativo con soporte hover */
+            /* Versión Web animada */
             <div
               style={{
                 flex: 1,
@@ -267,7 +200,7 @@ export const AvisosBanner = () => {
               </div>
             </div>
           ) : (
-            /* Versión Móvil: Ancho real sin colapso flexbox */
+            /* Versión Móvil Animada */
             <Animated.View
               style={[
                 styles.marqueeTrack,
@@ -352,7 +285,7 @@ export const AvisosBanner = () => {
                   style={[
                     styles.sheetCard,
                     !isDarkMode && styles.sheetCardLight,
-                    a.es_urgente && styles.sheetCardUrgent,
+                    esUrgente(a.categoria) && styles.sheetCardUrgent,
                   ]}
                   onPress={() => {
                     setSheetOpen(false);
@@ -362,16 +295,16 @@ export const AvisosBanner = () => {
                 >
                   <View style={styles.sheetCardTop}>
                     <View style={styles.sheetTagRow}>
-                      {a.es_urgente && (
+                      {esUrgente(a.categoria) && (
                         <AlertTriangle size={13} color="#f43f5e" />
                       )}
                       <Text
                         style={[
                           styles.sheetTagText,
-                          a.es_urgente ? styles.tagUrgent : styles.tagNormal,
+                          esUrgente(a.categoria) ? styles.tagUrgent : styles.tagNormal,
                         ]}
                       >
-                        {a.es_urgente ? "URGENTE" : "AVISO"}
+                        {a.categoria.toUpperCase()}
                       </Text>
                     </View>
                     <Text
@@ -380,7 +313,7 @@ export const AvisosBanner = () => {
                         !isDarkMode && styles.textLightSecondary,
                       ]}
                     >
-                      {formatFecha(a.fecha_publicacion)}
+                      {a.fecha}
                     </Text>
                   </View>
 
@@ -392,12 +325,6 @@ export const AvisosBanner = () => {
                   >
                     {a.titulo}
                   </Text>
-
-                  {a.subtitulo && (
-                    <Text style={styles.sheetCardSub}>
-                      {renderSubtitulo(a.subtitulo, isDarkMode, a.es_urgente)}
-                    </Text>
-                  )}
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -422,7 +349,7 @@ export const AvisosBanner = () => {
             style={[
               styles.dialogBox,
               !isDarkMode && styles.dialogBoxLight,
-              selected?.es_urgente
+              selected && esUrgente(selected.categoria)
                 ? styles.dialogUrgentBorder
                 : isDarkMode
                 ? styles.dialogNormalBorder
@@ -432,14 +359,14 @@ export const AvisosBanner = () => {
             {selected && (
               <>
                 <View style={styles.dialogHeader}>
-                  {selected.es_urgente && (
-                    <View style={styles.urgentBadge}>
-                      <AlertTriangle size={14} color="#f43f5e" />
-                      <Text style={styles.urgentBadgeText}>
-                        AVISO URGENTE
-                      </Text>
-                    </View>
-                  )}
+                  <View style={styles.urgentBadge}>
+                    {esUrgente(selected.categoria) && (
+                        <AlertTriangle size={14} color="#f43f5e" />
+                    )}
+                    <Text style={[styles.urgentBadgeText, esUrgente(selected.categoria) ? {color: '#f43f5e'} : {color: '#a855f7'}]}>
+                      {selected.categoria.toUpperCase()}
+                    </Text>
+                  </View>
                   <TouchableOpacity
                     style={[
                       styles.closeBtn,
@@ -460,28 +387,16 @@ export const AvisosBanner = () => {
                   {selected.titulo}
                 </Text>
 
-                {selected.subtitulo && (
-                  <View style={styles.dialogSubContainer}>
-                    {renderSubtitulo(
-                      selected.subtitulo,
-                      isDarkMode,
-                      selected.es_urgente
-                    )}
-                  </View>
-                )}
-
-                {selected.contenido && (
-                  <ScrollView style={styles.bodyScroll}>
-                    <Text
-                      style={[
-                        styles.dialogBody,
-                        !isDarkMode && styles.dialogBodyLight,
-                      ]}
-                    >
-                      {selected.contenido}
-                    </Text>
-                  </ScrollView>
-                )}
+                <ScrollView style={styles.bodyScroll}>
+                  <Text
+                    style={[
+                      styles.dialogBody,
+                      !isDarkMode && styles.dialogBodyLight,
+                    ]}
+                  >
+                    {selected.descripcion}
+                  </Text>
+                </ScrollView>
 
                 <Text
                   style={[
@@ -489,7 +404,7 @@ export const AvisosBanner = () => {
                     !isDarkMode && styles.textLightSecondary,
                   ]}
                 >
-                  {formatFecha(selected.fecha_publicacion).toUpperCase()}
+                  {selected.fecha}
                 </Text>
               </>
             )}
@@ -606,14 +521,6 @@ const styles = StyleSheet.create({
     color: "#71717a",
   },
 
-  /* COLORES Y ESTILOS DE TEXTO URGENTE EN ROJO */
-  subDark: { color: "#a1a1aa" },
-  subLight: { color: "#64748b" },
-  textBold: { fontWeight: "bold", color: "#ffffff" },
-  textBoldLight: { color: "#0f172a" },
-  textUrgent: { color: "#ff0000" },
-  textUrgentBold: { fontWeight: "bold", color: "#ff0000" },
-
   sheetOverlay: {
     flex: 1,
     flexDirection: "row",
@@ -695,7 +602,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   sheetCardTitleLight: { color: "#0f172a" },
-  sheetCardSub: { fontSize: 13, marginTop: 4 },
 
   dialogOverlay: {
     flex: 1,
@@ -743,7 +649,6 @@ const styles = StyleSheet.create({
   urgentBadgeText: {
     fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
     fontSize: 10,
-    color: "#a1868b",
     fontWeight: "bold",
     letterSpacing: 2,
   },
@@ -767,7 +672,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   dialogTitleLight: { color: "#0f172a" },
-  dialogSubContainer: { marginTop: 6, marginBottom: 12 },
   bodyScroll: { maxHeight: 180, marginVertical: 10 },
   dialogBody: { fontSize: 14, color: "#a1a1aa", lineHeight: 22 },
   dialogBodyLight: { color: "#475569" },

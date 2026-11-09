@@ -296,6 +296,106 @@ describe("mapa 3D", () => {
     await p.close();
   });
 
+  // Bloque 17: cada espacio es un salón (muros, pizarrón y pupitres); en L los muros son de cristal.
+  for (const ed of ["a", "b", "em", "i", "l", "p"]) {
+    test(`B17: edificio ${ed.toUpperCase()}: salones con forma propia${ed === "l" ? " y muros de cristal" : ""}`, async () => {
+      const p = await e.abrir(navegador, `${sitio.base}/mapa/${ed}`, { espera: 5000, viewport: { width: 1200, height: 900 } });
+      assert.equal((await e.info3D(p)).murosCristal, ed === "l");
+      const ids = await e.kiosco(p).evaluate(() => window.__kiosco.aulas());
+      const aspectos = await e.kiosco(p).evaluate((l) => l.map((i) => window.__kiosco.aspecto(i)), ids);
+      aspectos.forEach((a, k) => {
+        assert.equal(a.cajaVisible, false, `${ids[k]}: sin caja sólida`);
+        assert.ok(a.piezas >= 2, `${ids[k]}: tiene forma propia`);
+      });
+      // Seleccionar un salón pinta su forma, no una caja encima.
+      const salon = ids.find((i) => !/^(escalera|sanitario|bano)/.test(i));
+      await e.clicEnAula(p, salon);
+      await e.espera(1200);
+      assert.equal(await e.seleccion(p), salon);
+      const sel = await e.kiosco(p).evaluate((i) => window.__kiosco.aspecto(i), salon);
+      assert.equal(sel.cajaVisible, false);
+      assert.ok(sel.resaltadas > 0);
+      // Se mantiene ligero: pocas mallas por espacio (las piezas se unen por material).
+      const info = await e.info3D(p);
+      assert.ok(info.geometrias < 40 * 8, `geometrías en memoria: ${info.geometrias}`);
+      await p.close();
+    });
+  }
+
+  // Bloque 18: campus en 3D; un edificio se abre por dentro y cada espacio lleva a su planta.
+  const abrirCampus = () => e.abrir(navegador, `${sitio.base}/mapa`, { espera: 6000, viewport: { width: 1200, height: 1000 } });
+  const abrirInteriorA = async () => {
+    const p = await abrirCampus();
+    await e.clicEnAula(p, "edificio_a");
+    await e.espera(6000);
+    return p;
+  };
+
+  test("B18: el campus 3D muestra cada edificio con su forma", async () => {
+    const p = await abrirCampus();
+    const info = await e.info3D(p);
+    assert.equal(info.modo, "campus");
+    const ids = await e.kiosco(p).evaluate(() => window.__kiosco.aulas());
+    for (const ed of ["a", "b", "em", "i", "l", "p", "g", "dg", "o"]) assert.ok(ids.includes(`edificio_${ed}`), `falta edificio_${ed}`);
+    const aspectos = await e.kiosco(p).evaluate((l) => l.map((i) => window.__kiosco.aspecto(i)), ids);
+    aspectos.forEach((a, k) => {
+      assert.equal(a.cajaVisible, false, `${ids[k]}: sin caja sólida`);
+      assert.ok(a.piezas >= 2, `${ids[k]}: tiene forma de edificio`);
+    });
+    await p.close();
+  });
+
+  test("B18: tocar un edificio abre su interior con ambas plantas; 'Campus' regresa", async () => {
+    const p = await abrirInteriorA();
+    const info = await e.info3D(p);
+    assert.equal(info.modo, "edificio");
+    assert.equal(info.plantasApiladasVisibles, true, "se ven ambas plantas");
+    assert.ok(await e.hay(p, "EDIFICIO A · INTERIOR"));
+    assert.ok(await e.pulsar(p, "Campus"));
+    await e.espera(6000);
+    assert.equal((await e.info3D(p)).modo, "campus");
+    await p.close();
+  });
+
+  test("B18: un espacio de la planta baja abre la planta baja con el espacio resaltado", async () => {
+    const p = await abrirInteriorA();
+    await e.clicEnAula(p, "aula_a1");
+    await e.espera(5000);
+    assert.match(p.url(), /\/mapa\/a\?/);
+    assert.match(p.url(), /plantaInicial=baja/);
+    assert.equal(await e.banner(p), "Aula A1");
+    assert.equal((await e.info3D(p)).plantasApiladasVisibles, false);
+    await p.close();
+  });
+
+  test("B18: un espacio de la planta alta abre la planta alta con el espacio resaltado", async () => {
+    const p = await abrirInteriorA();
+    await e.clicEnAula(p, "aula_magna", true);
+    await e.espera(5000);
+    assert.match(p.url(), /plantaInicial=alta/);
+    assert.equal(await e.seleccion(p), "aula_magna");
+    await p.close();
+  });
+
+  test("B18: un edificio sin planos interiores avisa y no sale del campus", async () => {
+    const p = await abrirCampus();
+    await e.clicEnAula(p, "edificio_g");
+    await e.espera(1500);
+    assert.ok(await e.hay(p, "aún no tiene plano interior"));
+    assert.equal((await e.info3D(p)).modo, "campus");
+    await p.close();
+  });
+
+  test("B18: en la vista apilada del edificio, tocar la otra planta cambia a esa planta", async () => {
+    const p = await e.abrir(navegador, `${sitio.base}/mapa/a`, { espera: 5000, viewport: { width: 1200, height: 900 } });
+    await e.clicEnKiosco(p, "btn-plantas");
+    await e.espera(1500);
+    await e.clicEnAula(p, "aula_magna", true);
+    await e.espera(6000);
+    assert.equal(await e.seleccion(p), "aula_magna", "la planta alta se abre con el espacio seleccionado");
+    await p.close();
+  });
+
   test("B9: con 'reducir movimiento' no hay animación continua", async () => {
     const p = await e.abrir(navegador, `${sitio.base}/mapa/a?aulaResaltada=A1`, { reducido: true, espera: 5000 });
     const a = await e.info3D(p);

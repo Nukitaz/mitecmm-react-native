@@ -104,7 +104,11 @@ describe("errores y regreso al 2D", () => {
     assert.ok(await e.hay(p, "No se pudo descargar el plano"));
     sinRed = false;
     await e.pulsar(p, "Reintentar");
-    await e.espera(4000);
+    await e.espera(6000);
+    // Recuperado: el campus 3D (vista por defecto) y el plano 2D.
+    assert.equal((await e.info3D(p)).modo, "campus");
+    await e.pulsar(p, "2D");
+    await e.espera(1500);
     assert.ok((await p.evaluate(() => document.querySelectorAll("svg path").length)) > 100);
     await p.close();
   });

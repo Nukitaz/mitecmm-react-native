@@ -15,7 +15,8 @@ module.exports = defineConfig([
     languageOptions: {
       ecmaVersion: 5,
       sourceType: 'script',
-      globals: { ...globals.browser, THREE: 'readonly', MiTecmmEtiquetas: 'readonly', module: 'readonly', exports: 'writable' },
+      // Float32Array: los navegadores con WebGL lo tienen siempre (no es ES5, pero sí del navegador).
+      globals: { ...globals.browser, THREE: 'readonly', MiTecmmEtiquetas: 'readonly', Float32Array: 'readonly', module: 'readonly', exports: 'writable' },
     },
     rules: { 'no-var': 'off' },
   },

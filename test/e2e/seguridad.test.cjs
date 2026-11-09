@@ -97,7 +97,12 @@ describe("seguridad", () => {
     assert.equal(p.dialogo, false);
     await p.close();
 
-    p = await e.abrir(navegador, `${sitio.base}/mapa`, { regla: planosEnvenenados });
+    // Mapa general: primero en 3D (por defecto) y luego en 2D.
+    p = await e.abrir(navegador, `${sitio.base}/mapa`, { regla: planosEnvenenados, espera: 6000 });
+    assert.equal((await e.info3D(p)).modo, "campus");
+    assert.equal(await e.pwned(p), null);
+    await e.pulsar(p, "2D");
+    await e.espera(1500);
     assert.ok((await p.evaluate(() => document.querySelectorAll("svg path").length)) > 100);
     assert.equal(await e.pwned(p), null);
     await p.close();
@@ -165,7 +170,7 @@ describe("seguridad", () => {
     assert.equal(await e.pwned(p), null);
     const avisos = p.consultasSupabase.find((c) => c.url.includes("/rest/v1/avisos"));
     assert.ok(avisos, "se consultan los avisos");
-    assert.match(avisos.url, /select=id,titulo,/);
+    assert.match(avisos.url, /select=id,categoria,titulo,/);
     assert.ok(!p.consultasSupabase.some((c) => /select=\*/.test(c.url)), "ninguna consulta usa select=*");
     const sesiones = await p.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith("sb-")));
     assert.deepEqual(sesiones, []);
