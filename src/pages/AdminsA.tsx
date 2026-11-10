@@ -681,4 +681,4 @@ const styles = StyleSheet.create({
   roleBtnActive: { borderColor: "#a855f7", backgroundColor: "rgba(168, 85, 247, 0.1)" },
   roleBtnActiveLight: { borderColor: "#7e22ce", backgroundColor: "rgba(126, 34, 206, 0.1)" },
   roleBtnText: { color: "#94a3b8", fontWeight: "600", fontSize: 14 }
-});
+}); 
