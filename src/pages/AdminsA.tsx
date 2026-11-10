@@ -65,6 +65,10 @@ export default function AdminsA() {
         setIsAuthenticated(false);
         setUserEmail(null);
         setUserRole("admin");
+        setAdminsList([]);
+        setAvisos([]);
+        setCarreras([]);
+        setActiveTab("AVISOS");
       }
     });
     return () => authListener.subscription.unsubscribe();
@@ -82,7 +86,7 @@ export default function AdminsA() {
     if (activeTab === "CARRERAS" && userRole === "superadmin") {
       fetchCarreras();
     }
-  }, [activeTab]);
+  }, [activeTab, userRole]);
 
   // Autenticación Manual
   const handleEmailLogin = async () => {
@@ -135,18 +139,28 @@ export default function AdminsA() {
     if (!emailToValidate) return;
     setIsLoading(true);
     try {
-      const { data: adminAuth, error } = await supabase.from('administradores').select('*').eq('email', emailToValidate.trim()).single();
+      const emailNormalizado = emailToValidate.trim().toLowerCase();
+      const { data: adminAuth, error } = await supabase
+        .from('administradores')
+        .select('*')
+        .eq('email', emailNormalizado)
+        .maybeSingle();
+
+      if (error) console.error("Error validando administrador:", error);
+
       if (error || !adminAuth) {
         alert("Acceso denegado: Tu correo no tiene permisos de administrador.");
         await supabase.auth.signOut();
         setIsAuthenticated(false);
         return;
       }
-      setUserEmail(emailToValidate);
-      setUserRole(adminAuth.rol || "admin");
+
+      const rol = String(adminAuth.rol || "admin").trim().toLowerCase();
+      setUserEmail(emailNormalizado);
+      setUserRole(rol);
       setIsAuthenticated(true);
       fetchAvisos();
-      if (adminAuth.rol === "superadmin") fetchAdmins();
+      if (rol === "superadmin") fetchAdmins(rol); // se pasa el rol: el estado aún no se actualiza aquí
     } catch (error) {
       alert("Ocurrió un error al validar tus permisos.");
     } finally {
@@ -168,14 +182,15 @@ export default function AdminsA() {
     }
   };
 
-  const fetchAdmins = async () => {
-    if (userRole !== "superadmin") return;
+  const fetchAdmins = async (rol: string = userRole) => {
+    if (rol !== "superadmin") return;
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.from('administradores').select('*');
-      if (data) setAdminsList(data);
+      const { data, error } = await supabase.from('administradores').select('*').order('email');
+      if (error) throw error;
+      setAdminsList(data || []);
     } catch (error) {
-      console.error(error);
+      console.error("Error al obtener administradores:", error);
     } finally {
       setIsLoading(false);
     }
@@ -257,14 +272,29 @@ export default function AdminsA() {
       } else if (activeTab === "ADMINS") {
         if (!nuevoAdminEmail.includes("@")) { alert("Ingresa un correo válido."); setIsLoading(false); return; }
         
-        const emailLimpio = nuevoAdminEmail.trim();
+        const emailLimpio = nuevoAdminEmail.trim().toLowerCase();
         const { error: dbError } = await supabase.from('administradores').insert([{ email: emailLimpio, rol: nuevoAdminRol }]);
-        if (dbError) throw dbError;
+        if (dbError) {
+          if ((dbError as any).code === '23505') throw new Error("Ese correo ya es administrador.");
+          throw dbError;
+        }
 
-        await supabase.auth.signUp({ email: emailLimpio, password: Math.random().toString(36).slice(-10) + 'A1!' });
-        await supabase.auth.resetPasswordForEmail(emailLimpio, {
+        // Si el correo ya tiene cuenta, signUp no hace daño; ignoramos ese caso.
+        const { error: signUpError } = await supabase.auth.signUp({
+          email: emailLimpio,
+          password: Math.random().toString(36).slice(-10) + 'A1!'
+        });
+        if (signUpError && !/already|registered/i.test(signUpError.message)) {
+          console.warn("signUp:", signUpError.message);
+        }
+
+        const { error: resetError } = await supabase.auth.resetPasswordForEmail(emailLimpio, {
           redirectTo: Platform.OS === 'web' ? window.location.origin + '/admin' : undefined
         });
+        if (resetError) {
+          fetchAdmins();
+          throw new Error("El administrador se registró, pero no se pudo enviar el correo: " + resetError.message);
+        }
 
         alert(`¡Invitación enviada! El usuario ha sido registrado como ${nuevoAdminRol.toUpperCase()}.`);
         fetchAdmins();
@@ -277,33 +307,53 @@ export default function AdminsA() {
     }
   };
 
+  // ¿Este correo es el de la sesión actual?
+  const esMiCuenta = (correo?: string | null) =>
+    !!correo && !!userEmail && correo.trim().toLowerCase() === userEmail.toLowerCase();
+
   // Eliminar Datos
   const handleEliminar = async (id: string, tipo: 'aviso' | 'admin' | 'carrera') => {
-    const nombreElemento = tipo === 'carrera' ? 'esta carrera' : `este ${tipo}`;
-    const confirmar = Platform.OS === 'web' 
-      ? window.confirm(`¿Estás seguro de eliminar ${nombreElemento}?`) 
-      : await new Promise(resolve => Alert.alert("Eliminar", `¿Estás seguro?`, [{ text: "Cancelar", onPress: () => resolve(false) }, { text: "Eliminar", onPress: () => resolve(true) }]));
+    if (tipo === 'admin' && esMiCuenta(id)) {
+      alert("No puedes revocar tu propio acceso.");
+      return;
+    }
 
-    if (confirmar) {
-      setIsLoading(true);
-      try {
-        if (tipo === 'aviso') {
-          await avisosService.deleteAviso(id); fetchAvisos();
-        } else if (tipo === 'carrera') {
-          const { error } = await supabase.from('carreras').delete().eq('id', id);
-          if (error) throw error;
-          fetchCarreras();
-        } else {
-          const { error } = await supabase.from('administradores').delete().eq('id', id);
-          if (error) throw error;
-          fetchAdmins();
+    const nombreElemento = tipo === 'carrera' ? 'esta carrera' : `este ${tipo}`;
+    const confirmar: boolean = Platform.OS === 'web'
+      ? window.confirm(`¿Estás seguro de eliminar ${nombreElemento}?`)
+      : await new Promise<boolean>(resolve => Alert.alert("Eliminar", `¿Estás seguro?`, [
+          { text: "Cancelar", onPress: () => resolve(false) },
+          { text: "Eliminar", onPress: () => resolve(true) }
+        ]));
+
+    if (!confirmar) return;
+
+    setIsLoading(true);
+    try {
+      if (tipo === 'aviso') {
+        await avisosService.deleteAviso(id);
+        fetchAvisos();
+      } else if (tipo === 'carrera') {
+        // .select() devuelve las filas borradas; si viene vacío, RLS bloqueó el borrado
+        const { data, error } = await supabase.from('carreras').delete().eq('id', id).select();
+        if (error) throw error;
+        if (!data || data.length === 0) {
+          throw new Error("No se eliminó nada: no tienes permiso (RLS) o la carrera ya no existe.");
         }
-      } catch (error) {
-        console.error(error);
-        alert("Ocurrió un error al eliminar.");
-      } finally {
-        setIsLoading(false);
+        fetchCarreras();
+      } else {
+        const { data, error } = await supabase.from('administradores').delete().eq('email', id).select();
+        if (error) throw error;
+        if (!data || data.length === 0) {
+          throw new Error("No se revocó el acceso: no tienes permiso (RLS) o el correo no coincide.");
+        }
+        fetchAdmins();
       }
+    } catch (error: any) {
+      console.error(error);
+      alert("Error al eliminar: " + (error?.message || "desconocido"));
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -408,7 +458,7 @@ export default function AdminsA() {
             {/* VISTA ADMINS (Solo Superadmins) */}
             {activeTab === "ADMINS" && userRole === "superadmin" && (
               isLoading && adminsList.length === 0 ? <ActivityIndicator size="large" color="#a855f7" style={{ marginTop: 40 }} /> : adminsList.map((admin) => (
-                <View key={admin.id} style={[styles.card, !isDarkMode && styles.cardLight]}>
+                <View key={admin.id ?? admin.email} style={[styles.card, !isDarkMode && styles.cardLight]}>
                   <View style={[styles.cardAccent, { backgroundColor: admin.rol === 'superadmin' ? "#a855f7" : "#10b981" }]} />
                   <View style={styles.cardBody}>
                     <View style={styles.cardHeader}>
@@ -420,11 +470,11 @@ export default function AdminsA() {
                     </View>
                     <View style={[styles.cardFooter, !isDarkMode && styles.cardFooterLight]}>
                       <TouchableOpacity 
-                        style={[styles.actionBtn, admin.email === userEmail && { opacity: 0.3 }]} 
-                        onPress={() => admin.email !== userEmail && handleEliminar(admin.id, 'admin')}
-                        disabled={admin.email === userEmail}
+                        style={[styles.actionBtn, esMiCuenta(admin.email) && { opacity: 0.3 }]} 
+                        onPress={() => !esMiCuenta(admin.email) && handleEliminar(admin.email, 'admin')}
+                        disabled={esMiCuenta(admin.email)}
                       >
-                        <Text style={styles.deleteText}>{admin.email === userEmail ? "TU CUENTA" : "REVOKAR ACCESO"}</Text>
+                        <Text style={styles.deleteText}>{esMiCuenta(admin.email) ? "TU CUENTA" : "REVOCAR ACCESO"}</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
