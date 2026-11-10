@@ -294,7 +294,7 @@ export default function AdminsA() {
           if (error) throw error;
           fetchCarreras();
         } else {
-          const { error } = await supabase.from('administradores').delete().eq('id', id);
+          const { error } = await supabase.from('administradores').delete().eq('email', id);
           if (error) throw error;
           fetchAdmins();
         }
