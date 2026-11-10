@@ -421,7 +421,7 @@ export default function AdminsA() {
                     <View style={[styles.cardFooter, !isDarkMode && styles.cardFooterLight]}>
                       <TouchableOpacity 
                         style={[styles.actionBtn, admin.email === userEmail && { opacity: 0.3 }]} 
-                        onPress={() => admin.email !== userEmail && handleEliminar(admin.id, 'admin')}
+                        onPress={() => admin.email !== userEmail && handleEliminar(admin.email, 'admin')}
                         disabled={admin.email === userEmail}
                       >
                         <Text style={styles.deleteText}>{admin.email === userEmail ? "TU CUENTA" : "REVOKAR ACCESO"}</Text>
