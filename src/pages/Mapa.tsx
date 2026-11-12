@@ -241,6 +241,7 @@ const Mapa = () => {
   const bgColor = isDarkMode ? "#08080a" : "#f8fafc";
 
   const [activeBuildingSvgId, setActiveBuildingSvgId] = useState<string | null>(null);
+
   const [svgContent, setSvgContent] = useState<string | null>(mapaGeneralCache);
   const [isMapHovered, setIsMapHovered] = useState(false);
 

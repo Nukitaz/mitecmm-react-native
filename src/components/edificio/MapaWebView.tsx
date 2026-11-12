@@ -22,6 +22,46 @@ export const MapaWebView = forwardRef<WebView<object>, MapaWebViewProps>(
     const capaBajaRef = useRef<HTMLDivElement | null>(null);
     const capaAltaRef = useRef<HTMLDivElement | null>(null);
 
+    const [personasCount, setPersonasCount] = React.useState<number>(0);
+
+  React.useEffect(() => {
+    let isMounted = true;
+
+    const fetchConteo = async () => {
+      try {
+        const supabaseUrl = 'https://vwgbhkjticwbhmajxtzc.supabase.co/rest/v1/conteo_personas?id=eq.1&select=*';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ3Z2Joa2p0aWN3YmhtYWp4dHpjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxNTU2MDQsImV4cCI6MjA4ODczMTYwNH0.RNnZ6dk7hQVKrlJwq71xs0gKdwoGBGh2HY0CSIAEXZY';
+
+        const response = await fetch(supabaseUrl, {
+          method: 'GET',
+          headers: {
+            'apikey': supabaseKey,
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        const data = await response.json();
+        console.log("Respuesta Supabase:", response.status, data);
+
+        if (isMounted && Array.isArray(data) && data.length > 0) {
+          const valor = data[0].personas_actuales ?? data[0].cantidad ?? data[0].personas ?? 0;
+          setPersonasCount(valor);
+        }
+      } catch (err) {
+        console.error("Error al consultar Supabase:", err);
+      }
+    };
+
+    fetchConteo();
+    const interval = setInterval(fetchConteo, 5000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
     // Web: el resaltado se aplica sobre el DOM ya renderizado (classList),
     // nunca reescribiendo el HTML con texto que viene de la URL.
     useEffect(() => {
@@ -88,9 +128,51 @@ export const MapaWebView = forwardRef<WebView<object>, MapaWebViewProps>(
     `;
 
     const prepareSvg = (xml?: string | null) => {
-      if (!xml) return "";
-      return xml.replace(/<svg([^>]*)>/, `<svg$1>${svgCustomStyle}`);
+  if (!xml) return "";
+
+  let modifiedXml = xml.replace(/<svg([^>]*)>/, `<svg$1>${svgCustomStyle}`);
+
+  const targetAulaId = "sala_de_docentes";
+  const rectRegex = new RegExp(`(<rect[^>]*id="${targetAulaId}"[^>]*\\/?>)`, "i");
+  const rectMatch = modifiedXml.match(rectRegex);
+
+  if (rectMatch) {
+    const rectTag = rectMatch[1];
+
+    const getAttr = (name: string) => {
+      const match = rectTag.match(new RegExp(`${name}="([0-9.-]+)"`, "i"));
+      return match ? parseFloat(match[1]) : 0;
     };
+
+    const x = getAttr("x");
+    const y = getAttr("y");
+    const w = getAttr("width");
+    const h = getAttr("height");
+
+    if (w > 0 && h > 0) {
+      const centerX = x + w / 2;
+      const centerY = y + h * 0.72;
+
+      const boxW = w * 0.72;
+      const boxH = h * 0.14;
+      const fontSize = Math.round(boxH * 0.42);
+
+      const dynamicTextSvg = `
+        ${rectTag}
+        <g id="contador_en_vivo" style="pointer-events: none;">
+          <rect x="${centerX - boxW / 2}" y="${centerY - boxH / 2}" width="${boxW}" height="${boxH}" rx="20" fill="#121118" fill-opacity="0.9" stroke="#a855f7" stroke-width="8" />
+          <text x="${centerX}" y="${centerY}" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" font-size="${fontSize}" font-weight="bold" style="font-family: monospace;">
+            Personas: ${personasCount}
+          </text>
+        </g>
+      `;
+
+      modifiedXml = modifiedXml.replace(rectTag, dynamicTextSvg);
+    }
+  }
+
+  return modifiedXml;
+};
 
     const formattedBaja = prepareSvg(svgBaja);
     const formattedAlta = prepareSvg(svgAlta);
