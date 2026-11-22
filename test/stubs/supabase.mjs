@@ -22,6 +22,7 @@ function consulta(tabla) {
   const q = {
     select(columnas) { registro.select = columnas; return q; },
     or(filtro) { registro.or = filtro; return q; },
+    ilike(columna, patron) { registro.ilike = [columna, patron]; return q; },
     order(columna, opciones) { registro.order = [columna, opciones]; return q; },
     then(ok, mal) { return Promise.resolve(respuestas.tabla).then(ok, mal); },
   };

@@ -11,11 +11,6 @@ import {
 } from "react-native";
 import { 
   Search, 
-  Book, 
-  Calendar, 
-  Clock, 
-  MapPin, 
-  User, 
   ChevronDown, 
   ChevronUp, 
   ChevronLeft, 
@@ -27,6 +22,7 @@ import { AULAS_UBICACIONES } from "./Mapa";
 import { useNavigation } from "@react-navigation/native";
 import { useTheme } from "../context/ThemeContext";
 import { log } from "../utils/log";
+import { HorarioSemanal } from "../components/HorarioSemanal";
 
 type Suggestion = {
   id: string;
@@ -101,65 +97,21 @@ const ProfesorCard = React.memo(function ProfesorCard({ prof }: { prof: Profesor
       
       {expandido && (
         <View style={{ marginTop: 12 }}>
-          {prof.clases.map((clase, index) => {
-            const aulaObjetivo = clase.aula ? clase.aula.trim().toUpperCase() : "";
-            const ubicacionValida = AULAS_UBICACIONES[aulaObjetivo];
-
-            const handlePressAula = () => {
-              if (!ubicacionValida) return;
+          <HorarioSemanal
+            clases={prof.clases}
+            isDarkMode={isDarkMode}
+            onSeleccionarAula={(aula) => {
+              const aulaObjetivo = aula.trim().toUpperCase();
+              const ubicacion = AULAS_UBICACIONES[aulaObjetivo];
+              if (!ubicacion) return;
               navigation.navigate("Edificio", {
-                id: ubicacionValida.edificioId,
-                nombre: ubicacionValida.nombreEdificio,
-                plantaInicial: ubicacionValida.planta,
+                id: ubicacion.edificioId,
+                nombre: ubicacion.nombreEdificio,
+                plantaInicial: ubicacion.planta,
                 aulaResaltada: aulaObjetivo,
               });
-            };
-
-            return (
-              <View key={clase.id || index} style={{ marginTop: index > 0 ? 16 : 0 }}>
-                <View style={[styles.divider, !isDarkMode && styles.dividerLight]} />
-                
-                <View style={styles.infoRow}>
-                  <Book size={16} color={isDarkMode ? "#71717a" : "#64748b"} />
-                  <Text style={[styles.infoText, !isDarkMode && styles.textLight]}>
-                    {clase.materia} {clase.grupo ? `(Gpo. ${clase.grupo})` : ""}
-                  </Text>
-                </View>
-                
-                <View style={styles.infoRow}>
-                  <Calendar size={16} color={isDarkMode ? "#71717a" : "#64748b"} />
-                  <Text style={[styles.infoText, !isDarkMode && styles.textLight]}>
-                    {clase.dia}
-                  </Text>
-                </View>
-                
-                <View style={styles.infoRow}>
-                  <Clock size={16} color={isDarkMode ? "#71717a" : "#64748b"} />
-                  <Text style={[styles.infoText, !isDarkMode && styles.textLight]}>
-                    {clase.hora_inicio} → {clase.hora_fin}
-                  </Text>
-                </View>
-                
-                <TouchableOpacity
-                  style={[
-                    styles.aulaContainer,
-                    !isDarkMode && styles.aulaContainerLight,
-                    !ubicacionValida && { opacity: 0.65 },
-                  ]}
-                  onPress={handlePressAula}
-                  activeOpacity={ubicacionValida ? 0.7 : 1}
-                >
-                  <MapPin
-                    size={14}
-                    color={ubicacionValida ? "#a855f7" : isDarkMode ? "#71717a" : "#94a3b8"}
-                  />
-                  <Text style={[styles.aulaText, !isDarkMode && styles.textLight]}>
-                    AULA {clase.aula}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            );
-          })}
+            }}
+          />
         </View>
       )}
     </View>
@@ -202,6 +154,22 @@ const Profesores = ({ route }: any) => {
     cargarCarreras();
   }, []);
 
+  useEffect(() => {
+    let activo = true;
+    setIsLoading(true);
+    obtenerProfesores("")
+      .then((resultados) => {
+        if (activo) setProfesores(resultados ?? []);
+      })
+      .catch((error) => {
+        log.error("Error al cargar profesores:", error);
+      })
+      .finally(() => {
+        if (activo) setIsLoading(false);
+      });
+    return () => { activo = false; };
+  }, []);
+
   // Si llega otra búsqueda por parámetro, se aplica durante el render.
   const qParam = route?.params?.q;
   const [qParamPrevio, setQParamPrevio] = useState(qParam);
@@ -212,14 +180,9 @@ const Profesores = ({ route }: any) => {
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
-      setIsLoading(true);
-
       try {
-        const resultadosDB = await obtenerProfesores(busqueda);
-        setProfesores(resultadosDB || []);
-
         if (busqueda.trim().length >= 2) {
-          const term = busqueda.toUpperCase().trim();
+          const term = busqueda.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
           let nuevasSugerencias: Suggestion[] = [];
 
           Object.keys(AULAS_UBICACIONES).forEach((aula) => {
@@ -237,19 +200,21 @@ const Profesores = ({ route }: any) => {
           const profesoresMap = new Map<string, { totalMaterias: Set<string>; aula: string }>();
           const materiasAgregadas = new Set<string>();
 
-          resultadosDB?.forEach((item) => {
+          profesores.forEach((item) => {
             const doc = item.docente?.trim();
             const mat = item.materia?.trim();
             const aulaClass = item.aula?.trim();
+            const docNormalizado = doc?.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+            const matNormalizada = mat?.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
 
-            if (doc && doc.toUpperCase().includes(term)) {
+            if (doc && docNormalizado?.includes(term)) {
               if (!profesoresMap.has(doc)) {
                 profesoresMap.set(doc, { totalMaterias: new Set(), aula: aulaClass });
               }
               if (mat) profesoresMap.get(doc)!.totalMaterias.add(mat);
             }
 
-            if (mat && mat.toUpperCase().includes(term) && !materiasAgregadas.has(mat)) {
+            if (mat && matNormalizada?.includes(term) && !materiasAgregadas.has(mat)) {
               materiasAgregadas.add(mat);
               nuevasSugerencias.push({
                 id: `mat-${item.id || mat}`,
@@ -279,17 +244,26 @@ const Profesores = ({ route }: any) => {
         }
       } catch (err) {
         log.error("Error al consultar profesores:", err);
-      } finally {
-        setIsLoading(false);
       }
     }, 300);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [busqueda]);
+  }, [busqueda, profesores]);
 
   const profesoresAgrupados = useMemo(() => {
     const grupos = new Map<string, ProfesorAgrupado>();
-    profesores.forEach((item) => {
+    const term = busqueda.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase();
+    const filtrados = term
+      ? profesores.filter((item) => {
+          const docente = item.docente.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+          const materia = item.materia.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+          const aula = (item.aula ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+          const grupo = (item.grupo ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+          return docente.includes(term) || materia.includes(term) || aula.includes(term) || grupo.includes(term);
+        })
+      : profesores;
+
+    filtrados.forEach((item) => {
       const nombre = item.docente || "Docente Desconocido";
       const carrera = item.carrera || "SIN CARRERA";
       
@@ -302,14 +276,16 @@ const Profesores = ({ route }: any) => {
     const arregloAgrupado = Array.from(grupos.values());
     
     if (carreraSeleccionada !== "TODAS") {
-      return arregloAgrupado.filter(p => p.carrera.toUpperCase() === carreraSeleccionada);
+      return arregloAgrupado.filter(
+        p => p.carrera.trim().toUpperCase() === carreraSeleccionada.trim().toUpperCase()
+      );
     }
     return arregloAgrupado;
-  }, [profesores, carreraSeleccionada]);
+  }, [profesores, carreraSeleccionada, busqueda]);
 
   const handleSelectSuggestion = useCallback((item: Suggestion) => {
     setIsFocused(false);
-    setBusqueda(item.label);
+    setBusqueda(item.type === "aula" ? item.label.replace(/^AULA\s+/i, "") : item.label);
 
     if (item.type === "prof") return;
 
@@ -387,7 +363,7 @@ const Profesores = ({ route }: any) => {
           }}
           scrollEventThrottle={16}
           contentContainerStyle={styles.scrollFiltros}
-          style={{ flexGrow: 0 }}
+          style={styles.scrollFiltrosContainer}
         > 
           {carrerasDisponibles.map(carrera => (
             <TouchableOpacity
@@ -490,11 +466,15 @@ const styles = StyleSheet.create({
     maxWidth: 920,
     alignSelf: "center",
     marginBottom: 20,
-    paddingHorizontal: 4,
+    paddingHorizontal: 0,
+    overflow: "visible",
+    position: "relative",
+    zIndex: 20,
   },
   flechaBtn: {
     width: 32,
     height: 32,
+    flexShrink: 0,
     borderRadius: 16,
     backgroundColor: "#16161f",
     borderWidth: 1,
@@ -503,6 +483,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginHorizontal: 6,
     zIndex: 10,
+    elevation: 10,
   },
   flechaBtnLight: {
     backgroundColor: "#f1f5f9",
@@ -512,6 +493,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 6,
     gap: 10,
+  },
+  scrollFiltrosContainer: {
+    flex: 1,
+    minWidth: 0,
+    maxWidth: 840,
   },
   filtroBoton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: "#1c142c", borderWidth: 1, borderColor: "#27272a" },
   filtroBotonLight: { backgroundColor: "#f1f5f9", borderColor: "#e2e8f0" },

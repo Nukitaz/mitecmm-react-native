@@ -259,7 +259,7 @@ export const Navbar = () => {
                 style={[styles.sidebarBtn, !isDarkMode && styles.sidebarBtnLight]}
                 onPress={() => {
                   setIsMenuOpen(false);
-                  navigation.navigate("AdminAuth"); // Enlace activado
+                  navigation.navigate("AdminAuth");
                 }}
               >
                 <ShieldCheck size={20} color={isDarkMode ? "#c084fc" : "#a855f7"} />
@@ -273,7 +273,7 @@ export const Navbar = () => {
                 style={[styles.sidebarBtn, !isDarkMode && styles.sidebarBtnLight]}
                 onPress={() => {
                   setIsMenuOpen(false);
-                  navigation.navigate("Sugerencias"); // Enlace activado
+                  navigation.navigate("Sugerencias");
                 }}
               >
                 <MessageSquare size={20} color={isDarkMode ? "#c084fc" : "#a855f7"} />
@@ -281,26 +281,22 @@ export const Navbar = () => {
                   Buzón de Sugerencias
                 </Text>
               </TouchableOpacity>
-
             </View>
 
-            {/* Boton desarroladores */}
-            <TouchableOpacity
-            style={[styles.sidebarBtn, !isDarkMode && styles.sidebarBtnLight]}
+            {/* Footer de Créditos */}
+            <View style={styles.sidebarFooter}>
+              <TouchableOpacity
+                style={[styles.sidebarBtn, styles.sidebarDevsBtn, !isDarkMode && styles.sidebarBtnLight]}
                 onPress={() => {
                   setIsMenuOpen(false);
                   navigation.navigate("Desarrolladores");
                 }}
               >
-                <Users size={20} color={isDarkMode ? "#c084fc" : "#a855f7"} />
+                <Users size={20} color="#a855f7" />
                 <Text style={[styles.sidebarBtnText, !isDarkMode && styles.sidebarBtnTextLight]}>
                   Desarrolladores
                 </Text>
               </TouchableOpacity>
-          
-
-            {/* Footer de Créditos */}
-            <View style={styles.sidebarFooter}>
               <View style={styles.creditsContainer}>
                 <Code size={16} color={isDarkMode ? "#64748b" : "#94a3b8"} />
                 <Text style={[styles.creditsText, !isDarkMode && styles.creditsTextLight]}>
@@ -492,7 +488,8 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
   },
-  modalBackdrop: {position: "absolute",
+  modalBackdrop: {
+    position: "absolute",
     top: 0,
     left: 0,
     right: 0,
@@ -555,6 +552,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fafc",
     borderColor: "#e2e8f0",
   },
+  sidebarDevsBtn: {
+    marginBottom: 0,
+  },
   sidebarBtnText: {
     fontSize: 14,
     fontWeight: "600",
@@ -564,15 +564,16 @@ const styles = StyleSheet.create({
     color: "#1e293b",
   },
   sidebarFooter: {
-    borderTopWidth: 1,
-    borderTopColor: "#18181c",
-    paddingTop: 20,
     marginTop: "auto",
   },
   creditsContainer: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 8,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#18181c",
     opacity: 0.8,
   },
   creditsText: {

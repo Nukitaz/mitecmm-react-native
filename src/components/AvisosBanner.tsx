@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -14,7 +14,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AlertTriangle, ChevronRight, X } from "lucide-react-native";
 import { fetchAvisos, type Aviso } from "../services/avisosService";
 import { useTheme } from "../context/ThemeContext";
-import { useReduceMotion } from "../hooks/useReduceMotion";
 
 export const AvisosBanner = () => {
   const insets = useSafeAreaInsets();
@@ -22,10 +21,6 @@ export const AvisosBanner = () => {
   const [avisos, setAvisos] = useState<Aviso[]>([]);
   const [selected, setSelected] = useState<Aviso | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
-  // Con "reducir movimiento" la marquesina no se anima: se muestra una fila
-  // fija que el usuario puede deslizar a mano.
-  const reducirMovimiento = useReduceMotion();
-
   // Ancho medido de un bloque para animación continua en Android
   const [singleWidth, setSingleWidth] = useState(0);
   const [animatedValue] = useState(() => new Animated.Value(0));
@@ -39,17 +34,19 @@ export const AvisosBanner = () => {
     loadAvisos();
   }, []);
 
-  // Controlamos la animación según la cantidad de avisos
-  const isAnimated = avisos.length >= 3;
-  const baseList = useMemo(() => {
-    if (avisos.length === 0) return [];
-    if (!isAnimated) return avisos; // Si son pocos, mostramos la lista normal
-    return [...avisos, ...avisos, ...avisos, ...avisos];
-  }, [avisos, isAnimated]);
+  // Varias copias forman cada bloque, aunque haya un solo aviso corto.
+  const avisosRepetidos = [
+    ...avisos,
+    ...avisos,
+    ...avisos,
+    ...avisos,
+    ...avisos,
+    ...avisos,
+  ];
 
-  // Animación continua y fluida para Android / iOS (solo si hay más de 2 avisos)
+  // Animación continua y fluida para Android / iOS.
   useEffect(() => {
-    if (Platform.OS === "web" || reducirMovimiento || singleWidth === 0 || baseList.length === 0 || !isAnimated) return;
+    if (Platform.OS === "web" || avisos.length === 0 || singleWidth === 0) return;
 
     animatedValue.setValue(0);
     const duration = Math.max(12000, (singleWidth / 42) * 1000);
@@ -65,7 +62,7 @@ export const AvisosBanner = () => {
     animation.start();
 
     return () => animation.stop();
-  }, [singleWidth, baseList, animatedValue, reducirMovimiento, isAnimated]);
+  }, [avisos, singleWidth, animatedValue]);
 
   const esUrgente = (categoria: string) => categoria.toLowerCase() === "urgente";
 
@@ -131,7 +128,7 @@ export const AvisosBanner = () => {
 
         {/* Contenedor del texto de los avisos */}
         <View style={styles.marqueeContainer}>
-          {baseList.length === 0 ? (
+          {avisos.length === 0 ? (
             <Text
               style={[
                 styles.emptyText,
@@ -140,15 +137,6 @@ export const AvisosBanner = () => {
             >
               Sin avisos por el momento
             </Text>
-          ) : !isAnimated || reducirMovimiento ? (
-            /* Pocos avisos o "reducir movimiento": una sola copia, deslizable a mano */
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.trackGroup}
-            >
-              {avisos.map((a) => renderTickerItem(a, `s-${a.id}`))}
-            </ScrollView>
           ) : Platform.OS === "web" ? (
             /* Versión Web animada */
             <div
@@ -175,12 +163,6 @@ export const AvisosBanner = () => {
                       animation: marqueeLoopWeb 32s linear infinite;
                       will-change: transform;
                     }
-                    .marquee-track-web:hover {
-                      animation-play-state: paused;
-                    }
-                    @media (prefers-reduced-motion: reduce) {
-                      .marquee-track-web { animation: none; }
-                    }
                     .marquee-group-web {
                       display: flex !important;
                       flex-direction: row !important;
@@ -192,10 +174,10 @@ export const AvisosBanner = () => {
               />
               <div className="marquee-track-web">
                 <div className="marquee-group-web">
-                  {baseList.map((a, i) => renderTickerItem(a, `w1-${a.id}-${i}`))}
+                  {avisosRepetidos.map((a, i) => renderTickerItem(a, `w1-${a.id}-${i}`))}
                 </div>
                 <div className="marquee-group-web">
-                  {baseList.map((a, i) => renderTickerItem(a, `w2-${a.id}-${i}`))}
+                  {avisosRepetidos.map((a, i) => renderTickerItem(a, `w2-${a.id}-${i}`))}
                 </div>
               </div>
             </div>
@@ -219,10 +201,10 @@ export const AvisosBanner = () => {
                   }
                 }}
               >
-                {baseList.map((a, i) => renderTickerItem(a, `m1-${a.id}-${i}`))}
+                {avisosRepetidos.map((a, i) => renderTickerItem(a, `m1-${a.id}-${i}`))}
               </View>
               <View style={styles.trackGroup}>
-                {baseList.map((a, i) => renderTickerItem(a, `m2-${a.id}-${i}`))}
+                {avisosRepetidos.map((a, i) => renderTickerItem(a, `m2-${a.id}-${i}`))}
               </View>
             </Animated.View>
           )}
