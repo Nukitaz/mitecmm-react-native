@@ -46,13 +46,13 @@ test("obtenerProfesores proyecta solo columnas públicas", async () => {
 
 test("el filtro .or() solo recibe el término limpio", async () => {
   await obtenerProfesores("x),id.gt.(0,docente.eq.y");
-  const consulta = llamadas.find((l) => l.tipo === "from");
-  assert.equal(consulta.tabla, "horarios");
-  assert.match(consulta.select, /profesores!inner/);
-  // exactamente 4 condiciones ilike, ninguna inyectada
-  assert.equal(consulta.or.split(",").length, 4);
-  assert.match(consulta.or, /^materia\.ilike\.%x id gt 0 docente eq y%,aula\.ilike\./);
-  assert.match(consulta.or, /profesores\.nombre\.ilike\.%x id gt 0 docente eq y%$/);
+  const consultaProfesores = llamadas.find((l) => l.tabla === "profesores");
+  const consultaHorarios = llamadas.find((l) => l.tabla === "horarios");
+  assert.ok(consultaProfesores);
+  assert.deepEqual(consultaProfesores.ilike, ["nombre", "%x id gt 0 docente eq y%"]);
+  assert.ok(consultaHorarios);
+  assert.doesNotMatch(consultaHorarios.or ?? "", /profesores\.nombre/);
+  assert.match(consultaHorarios.or, /^materia\.ilike\.%x id gt 0 docente eq y%,aula\.ilike\./);
 });
 
 test("obtenerProfesores devuelve [] ante un error de la base", async () => {

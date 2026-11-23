@@ -42,6 +42,7 @@ CREATE TABLE avisos (
 CREATE TABLE administradores (
   email text PRIMARY KEY,
   rol text DEFAULT 'admin',
+  estado text NOT NULL DEFAULT 'activo',
   agregado_por text,
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
@@ -49,5 +50,5 @@ CREATE TABLE administradores (
 INSERT INTO carreras (nombre, siglas) 
 VALUES ('Ingeniería en Sistemas Computacionales', 'ISC');
 
-INSERT INTO administradores (email) 
-VALUES ('za240120224@zapopan.tecmm.edu.mx');
+INSERT INTO administradores (email, estado)
+VALUES ('za240120224@zapopan.tecmm.edu.mx', 'activo');

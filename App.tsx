@@ -7,6 +7,9 @@ import { ThemeProvider, useTheme } from "./src/context/ThemeContext";
 // Fondo con textura de puntos
 import { DottedBackground } from "./src/components/DottedBackground";
 
+// COMPONENTE DE PRUEBA DE OCR (Asegúrate de que el archivo en tu carpeta sea LectorPoc.tsx)
+//import { LectorPoC } from './src/components/LectorPoc';
+
 // IMPORTA TU CLIENTE DE SUPABASE (Verifica que la ruta sea correcta según tu proyecto)
 import { supabase } from './src/integrations/supabase/client';
 // Importa tus pantallas
@@ -18,7 +21,7 @@ import AdminsA from "./src/pages/AdminsA";
 import Desarrolladores from "./src/pages/Desarrolladores";
 import Sugerencias from "./src/pages/Sugerencias";
 import SetPassword from "./src/pages/SetPassword";
-import AccesoDenegado from "./src/pages/AccesoDenegado"; // <-- 1. IMPORTA LA NUEVA PANTALLA
+import AccesoDenegado from "./src/pages/AccesoDenegado"; 
 
 const Stack = createNativeStackNavigator();
 
@@ -41,7 +44,7 @@ const AdminsAScreen = withBackground(AdminsA);
 const DesarrolladoresScreen = withBackground(Desarrolladores);
 const SugerenciasScreen = withBackground(Sugerencias);
 const SetPasswordScreen = withBackground(SetPassword);
-const AccesoDenegadoScreen = withBackground(AccesoDenegado); // <-- 2. ENVUELVE LA NUEVA PANTALLA
+const AccesoDenegadoScreen = withBackground(AccesoDenegado); 
 
 const linking: LinkingOptions<any> = {
   prefixes: [
@@ -51,17 +54,17 @@ const linking: LinkingOptions<any> = {
     "tu-app://",
   ],
   config: {
-    initialRouteName: "Mitecmm",
+    initialRouteName: "Index",
     screens: {
-      Mitecmm: "",
+      Index: "",
       Mapa: "mapa",
       Edificio: "mapa/:id",
       Profesores: "profesores",
-      Administracion: "admin",
+      AdminAuth: "admin",
       Desarrolladores: "desarrolladores",
       Sugerencias: "sugerencias",
       SetPassword: "set-password",
-      AccesoDenegado: "acceso-denegado", // <-- 3. REGÍSTRALA EN EL ROUTER WEB
+      AccesoDenegado: "acceso-denegado", 
     },
   },
 };
@@ -94,39 +97,22 @@ function AppNavigator() {
           mensaje: "Este enlace ya fue utilizado o ha expirado."
         });
       }
-      return; // Detiene el código aquí
+      return; 
     }
 
     // 2. INTERCEPTOR ESTRICTO DE CONTRASEÑA
-    // Si la URL trae un token de recuperación, lo mandamos a SetPassword y cortamos la ejecución
     if (hash.includes('type=recovery')) {
       if (navigationRef.isReady()) {
         navigationRef.navigate("SetPassword");
       }
-      return; // Evita que se evalúe el inicio de sesión automático
+      return; 
     }
     
-    // 3. Revisión de sesión normal (solo corre si NO es un enlace de recuperación)
-    const checkInitialSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session && navigationRef.isReady()) {
-        setTimeout(() => {
-          navigationRef.navigate("AdminAuth");
-        }, 100);
-      }
-    };
-    checkInitialSession();
-
-    // 4. Listener de Supabase
+    // 3. Listener de Supabase
     const { data: authListener } = supabase.auth.onAuthStateChange((event: any, session) => {
       if (event === 'PASSWORD_RECOVERY') {
         if (navigationRef.isReady()) {
           navigationRef.navigate("SetPassword");
-        }
-      } else if (event === 'SIGNED_IN' && !hash.includes('type=recovery')) {
-        // Solo redirige al panel si acaba de iniciar sesión normal y no viene del correo
-        if (navigationRef.isReady()) {
-           navigationRef.navigate("AdminAuth");
         }
       }
     });
@@ -137,23 +123,13 @@ function AppNavigator() {
   }, []);
 
   const updateTitle = (state: any) => {
-    //if (Platform.OS === "web" && state) {
-      //const route = state.routes[state.index];
-      //const title = ROUTE_TITLES[route.name] || "MiTecmm";
-      //document.title = title;
-    //}
+    // Código comentado original
   };
 
   return (
     <NavigationContainer
       ref={navigationRef}
       linking={linking}
-      //onReady={() => {
-        //if (Platform.OS === "web") {
-          //document.title = "MiTecmm";
-        //}
-      //}}
-      //onStateChange={(state) => updateTitle(state)}
     >
       <Stack.Navigator
         initialRouteName="Index"

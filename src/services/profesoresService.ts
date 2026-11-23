@@ -68,18 +68,42 @@ export async function obtenerProfesores(busqueda: string = ""): Promise<HorarioD
       return formatearDatos(data);
     }
 
-    // Consulta con búsqueda por texto (q ya no trae caracteres de la sintaxis de PostgREST)
-    const { data, error } = await supabase
-      .from("horarios")
-      .select(COLUMNAS_CON_PROFESOR)
-      .or(`materia.ilike.%${q}%,aula.ilike.%${q}%,grupo.ilike.%${q}%,profesores.nombre.ilike.%${q}%`);
+    // Los filtros raíz de PostgREST no permiten columnas de relaciones embebidas.
+    // Primero resolvemos los profesores por nombre y luego filtramos horarios locales.
+    const [{ data: profesores, error: errorProfesores }, { data: porMateria, error: errorMateria }] =
+      await Promise.all([
+        supabase
+          .from("profesores")
+          .select("id")
+          .ilike("nombre", `%${q}%`),
+        supabase
+          .from("horarios")
+          .select(COLUMNAS_CON_PROFESOR)
+          .or(`materia.ilike.%${q}%,aula.ilike.%${q}%,grupo.ilike.%${q}%`),
+      ]);
 
-    if (error) {
-      log.error("Error en consulta relacional:", error.message);
-      return [];
+    if (errorProfesores) log.error("Error buscando profesores:", errorProfesores.message);
+    if (errorMateria) log.error("Error buscando horarios:", errorMateria.message);
+
+    const idsProfesores = (profesores ?? []).map((profesor) => String(profesor.id));
+    let porProfesor: any[] = [];
+    if (idsProfesores.length) {
+      const { data, error } = await supabase
+        .from("horarios")
+        .select(COLUMNAS_CON_PROFESOR)
+        .or(idsProfesores.map((id) => `profesor_id.eq.${id}`).join(","));
+      if (error) log.error("Error buscando horarios por profesor:", error.message);
+      else porProfesor = data ?? [];
     }
 
-    return formatearDatos(data);
+    const vistos = new Set<string>();
+    const combinados = [...(porMateria ?? []), ...porProfesor].filter((item) => {
+      if (vistos.has(String(item.id))) return false;
+      vistos.add(String(item.id));
+      return true;
+    });
+
+    return formatearDatos(combinados);
   } catch (err) {
     log.error("Error en servicio de profesores:", err);
     return [];

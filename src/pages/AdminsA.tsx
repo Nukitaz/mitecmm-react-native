@@ -8,6 +8,8 @@ import { useTheme } from "../context/ThemeContext";
 import { MapPin, Calendar, Plus, X, Eye, EyeOff, User, Shield, Check, Book } from "lucide-react-native";
 import { avisosService } from "../services/avisosService";
 import { supabase } from "../integrations/supabase/client";
+import { PanelHorarios } from '../components/PanelHorarios';
+import { SelectorFechaRango } from '../components/SelectorFechaRango';
 
 export default function AdminsA() {
   const { isDarkMode } = useTheme();
@@ -23,8 +25,12 @@ export default function AdminsA() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
-  // Estado de Pestañas dinámico
-  const [activeTab, setActiveTab] = useState("AVISOS");
+  // Estado de Pestañas dinámico, conservado al recargar
+  const ADMIN_TAB_KEY = "mitecmm_admin_active_tab";
+  const [activeTab, setActiveTab] = useState(() => {
+    if (typeof window === "undefined") return "AVISOS";
+    return window.sessionStorage.getItem(ADMIN_TAB_KEY) || "AVISOS";
+  });
   const tabs = userRole === "superadmin" 
     ? ["CARRERAS", "DOCENTES", "AVISOS", "HORARIOS", "ADMINS"] 
     : ["DOCENTES", "AVISOS", "HORARIOS"];
@@ -55,6 +61,12 @@ export default function AdminsA() {
   const [nombreCarrera, setNombreCarrera] = useState("");
   const [siglasCarrera, setSiglasCarrera] = useState("");
 
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem("mitecmm_admin_active_tab", activeTab);
+    }
+  }, [activeTab]);
+
   // 1. Verificar sesión activa
   useEffect(() => {
     checkUserSession();
@@ -68,7 +80,6 @@ export default function AdminsA() {
         setAdminsList([]);
         setAvisos([]);
         setCarreras([]);
-        setActiveTab("AVISOS");
       }
     });
     return () => authListener.subscription.unsubscribe();
@@ -158,6 +169,14 @@ export default function AdminsA() {
       const rol = String(adminAuth.rol || "admin").trim().toLowerCase();
       setUserEmail(emailNormalizado);
       setUserRole(rol);
+      const pestañasPermitidas = rol === "superadmin"
+        ? ["CARRERAS", "DOCENTES", "AVISOS", "HORARIOS", "ADMINS"]
+        : ["DOCENTES", "AVISOS", "HORARIOS"];
+      if (!pestañasPermitidas.includes(activeTab)) {
+        const pestañaSegura = pestañasPermitidas.includes("AVISOS") ? "AVISOS" : pestañasPermitidas[0];
+        setActiveTab(pestañaSegura);
+        if (typeof window !== "undefined") window.sessionStorage.setItem("mitecmm_admin_active_tab", pestañaSegura);
+      }
       setIsAuthenticated(true);
       fetchAvisos();
       if (rol === "superadmin") fetchAdmins(rol); // se pasa el rol: el estado aún no se actualiza aquí
@@ -273,7 +292,9 @@ export default function AdminsA() {
         if (!nuevoAdminEmail.includes("@")) { alert("Ingresa un correo válido."); setIsLoading(false); return; }
         
         const emailLimpio = nuevoAdminEmail.trim().toLowerCase();
-        const { error: dbError } = await supabase.from('administradores').insert([{ email: emailLimpio, rol: nuevoAdminRol }]);
+        const { error: dbError } = await supabase
+          .from('administradores')
+          .insert([{ email: emailLimpio, rol: nuevoAdminRol, estado: 'pendiente' }]);
         if (dbError) {
           if ((dbError as any).code === '23505') throw new Error("Ese correo ya es administrador.");
           throw dbError;
@@ -312,18 +333,27 @@ export default function AdminsA() {
     !!correo && !!userEmail && correo.trim().toLowerCase() === userEmail.toLowerCase();
 
   // Eliminar Datos
-  const handleEliminar = async (id: string, tipo: 'aviso' | 'admin' | 'carrera') => {
-    if (tipo === 'admin' && esMiCuenta(id)) {
+  const handleEliminar = async (id: string, tipo: 'aviso' | 'admin' | 'carrera', pendiente = false) => {
+    if (tipo === 'admin' && !pendiente && esMiCuenta(id)) {
       alert("No puedes revocar tu propio acceso.");
       return;
     }
 
-    const nombreElemento = tipo === 'carrera' ? 'esta carrera' : `este ${tipo}`;
+    const nombreElemento = pendiente
+      ? 'esta invitación'
+      : tipo === 'carrera'
+        ? 'esta carrera'
+        : `este ${tipo}`;
     const confirmar: boolean = Platform.OS === 'web'
       ? window.confirm(`¿Estás seguro de eliminar ${nombreElemento}?`)
-      : await new Promise<boolean>(resolve => Alert.alert("Eliminar", `¿Estás seguro?`, [
+      : await new Promise<boolean>(resolve => Alert.alert(
+          pendiente ? "Cancelar invitación" : "Eliminar",
+          pendiente
+            ? "¿Quieres cancelar esta invitación y eliminar el registro?"
+            : "¿Estás seguro?",
+          [
           { text: "Cancelar", onPress: () => resolve(false) },
-          { text: "Eliminar", onPress: () => resolve(true) }
+          { text: pendiente ? "Cancelar invitación" : "Eliminar", onPress: () => resolve(true) }
         ]));
 
     if (!confirmar) return;
@@ -384,7 +414,11 @@ export default function AdminsA() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabScroll}>
               {tabs.map((tab) => (
                 <TouchableOpacity 
-                  key={tab} onPress={() => { setActiveTab(tab); if(tab === 'ADMINS' && userRole === 'superadmin') fetchAdmins(); }}
+                  key={tab} onPress={() => {
+                    setActiveTab(tab);
+                    if (typeof window !== "undefined") window.sessionStorage.setItem("mitecmm_admin_active_tab", tab);
+                    if(tab === 'ADMINS' && userRole === 'superadmin') fetchAdmins();
+                  }}
                   style={[styles.tabBtn, activeTab === tab && styles.tabBtnActive]}
                 >
                   <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>{tab}</Text>
@@ -457,32 +491,69 @@ export default function AdminsA() {
 
             {/* VISTA ADMINS (Solo Superadmins) */}
             {activeTab === "ADMINS" && userRole === "superadmin" && (
-              isLoading && adminsList.length === 0 ? <ActivityIndicator size="large" color="#a855f7" style={{ marginTop: 40 }} /> : adminsList.map((admin) => (
-                <View key={admin.id ?? admin.email} style={[styles.card, !isDarkMode && styles.cardLight]}>
-                  <View style={[styles.cardAccent, { backgroundColor: admin.rol === 'superadmin' ? "#a855f7" : "#10b981" }]} />
-                  <View style={styles.cardBody}>
-                    <View style={styles.cardHeader}>
-                      <Shield size={24} color={isDarkMode ? (admin.rol === 'superadmin' ? "#a855f7" : "#10b981") : (admin.rol === 'superadmin' ? "#7e22ce" : "#059669")} />
-                      <View style={styles.cardHeaderText}>
-                        <Text style={[styles.cardTitle, !isDarkMode && styles.cardTitleLight]}>{admin.email}</Text>
-                        <Text style={[styles.cardSubtitle, !isDarkMode && styles.cardSubtitleLight]}>Rol: {admin.rol ? admin.rol.toUpperCase() : "ADMIN"}</Text>
+              isLoading && adminsList.length === 0 ? <ActivityIndicator size="large" color="#a855f7" style={{ marginTop: 40 }} /> : adminsList.map((admin) => {
+                const pendiente = String(admin.estado || "").trim().toLowerCase() === "pendiente";
+                const esCuentaActual = esMiCuenta(admin.email);
+                const accentColor = pendiente
+                  ? "#f59e0b"
+                  : admin.rol === "superadmin"
+                    ? "#a855f7"
+                    : "#10b981";
+
+                return (
+                  <View key={admin.id ?? admin.email} style={[styles.card, !isDarkMode && styles.cardLight]}>
+                    <View style={[styles.cardAccent, { backgroundColor: accentColor }]} />
+                    <View style={styles.cardBody}>
+                      <View style={styles.cardHeader}>
+                        <Shield size={24} color={pendiente
+                          ? "#f59e0b"
+                          : isDarkMode
+                            ? (admin.rol === "superadmin" ? "#a855f7" : "#10b981")
+                            : (admin.rol === "superadmin" ? "#7e22ce" : "#059669")} />
+                        <View style={styles.cardHeaderText}>
+                          <Text style={[styles.cardTitle, !isDarkMode && styles.cardTitleLight]}>{admin.email}</Text>
+                          <View style={styles.cardSubtitleRow}>
+                            <Text style={[styles.cardSubtitle, !isDarkMode && styles.cardSubtitleLight]}>
+                              Rol: {admin.rol ? String(admin.rol).toUpperCase() : "ADMIN"}
+                            </Text>
+                            {pendiente && (
+                              <View style={[styles.pendingBadge, isDarkMode ? styles.pendingBadgeDark : styles.pendingBadgeLight]}>
+                                <Text style={styles.pendingBadgeText}>PENDIENTE</Text>
+                              </View>
+                            )}
+                          </View>
+                        </View>
+                      </View>
+                      <View style={[styles.cardFooter, !isDarkMode && styles.cardFooterLight]}>
+                        <TouchableOpacity
+                          style={[styles.actionBtn, !pendiente && esCuentaActual && { opacity: 0.3 }]}
+                          onPress={() => pendiente
+                            ? handleEliminar(admin.email, "admin", true)
+                            : !esCuentaActual && handleEliminar(admin.email, "admin")}
+                          disabled={!pendiente && esCuentaActual}
+                        >
+                          <Text style={[styles.deleteText, pendiente && styles.pendingActionText]}>
+                            {pendiente
+                              ? "CANCELAR INVITACIÓN"
+                              : esCuentaActual
+                                ? "TU CUENTA"
+                                : "REVOCAR ACCESO"}
+                          </Text>
+                        </TouchableOpacity>
                       </View>
                     </View>
-                    <View style={[styles.cardFooter, !isDarkMode && styles.cardFooterLight]}>
-                      <TouchableOpacity 
-                        style={[styles.actionBtn, esMiCuenta(admin.email) && { opacity: 0.3 }]} 
-                        onPress={() => !esMiCuenta(admin.email) && handleEliminar(admin.email, 'admin')}
-                        disabled={esMiCuenta(admin.email)}
-                      >
-                        <Text style={styles.deleteText}>{esMiCuenta(admin.email) ? "TU CUENTA" : "REVOCAR ACCESO"}</Text>
-                      </TouchableOpacity>
-                    </View>
                   </View>
-                </View>
-              ))
+                );
+              })
+            )}
+            {activeTab === "HORARIOS" && (
+              <PanelHorarios modo="HORARIOS" />
+          )}
+            {activeTab === "DOCENTES" && (
+              <PanelHorarios modo="DOCENTES" />
             )}
 
-            {activeTab !== "AVISOS" && activeTab !== "ADMINS" && activeTab !== "CARRERAS" && (
+            {activeTab !== "AVISOS" && activeTab !== "ADMINS" && activeTab !== "CARRERAS" && activeTab !== "HORARIOS" && activeTab !== "DOCENTES" && (
               <View style={styles.emptyState}>
                 <Text style={[styles.subtitle, !isDarkMode && styles.subtitleLight]}>En construcción...</Text>
               </View>
@@ -526,7 +597,11 @@ export default function AdminsA() {
                   <Text style={[styles.inputLabel, !isDarkMode && styles.inputLabelLight]}>T Í T U L O</Text>
                   <TextInput style={[styles.modalInput, !isDarkMode && styles.modalInputLight, { color: isDarkMode ? "#f8fafc" : "#0f172a" }]} placeholder="Ej. CREDENCIALES" placeholderTextColor={isDarkMode ? "#64748b" : "#94a3b8"} value={titulo} onChangeText={setTitulo} />
                   <Text style={[styles.inputLabel, !isDarkMode && styles.inputLabelLight]}>F E C H A</Text>
-                  <TextInput style={[styles.modalInput, !isDarkMode && styles.modalInputLight, { color: isDarkMode ? "#f8fafc" : "#0f172a" }]} placeholder="Ej. 28 de abril de 2026" placeholderTextColor={isDarkMode ? "#64748b" : "#94a3b8"} value={fecha} onChangeText={setFecha} />
+                  <SelectorFechaRango
+                    value={fecha}
+                    onChange={setFecha}
+                    placeholder="Seleccionar fecha..."
+                  />
                   <Text style={[styles.inputLabel, !isDarkMode && styles.inputLabelLight]}>D E S C R I P C I Ó N</Text>
                   <TextInput style={[styles.modalInput, !isDarkMode && styles.modalInputLight, styles.textArea, { color: isDarkMode ? "#f8fafc" : "#0f172a" }]} placeholder="Detalles del aviso..." placeholderTextColor={isDarkMode ? "#64748b" : "#94a3b8"} multiline={true} numberOfLines={4} textAlignVertical="top" value={descripcion} onChangeText={setDescripcion} />
                 </>
@@ -654,8 +729,14 @@ const styles = StyleSheet.create({
   cardAccent: { width: 4 }, cardBody: { flex: 1 }, cardHeader: { flexDirection: "row", padding: 20, gap: 16, alignItems: "center" }, cardHeaderText: { flex: 1 },
   cardTitle: { fontSize: 18, fontWeight: "bold", color: "#f8fafc", marginBottom: 4 }, cardTitleLight: { color: "#0f172a" },
   cardSubtitle: { fontSize: 13, color: "#94a3b8", marginBottom: 2 }, cardSubtitleLight: { color: "#64748b" },
+  cardSubtitleRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 },
+  pendingBadge: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
+  pendingBadgeDark: { backgroundColor: "rgba(245, 158, 11, 0.12)", borderColor: "rgba(245, 158, 11, 0.55)" },
+  pendingBadgeLight: { backgroundColor: "#fff7ed", borderColor: "#fdba74" },
+  pendingBadgeText: { color: "#f59e0b", fontSize: 10, fontWeight: "900", letterSpacing: 0.6 },
   cardFooter: { flexDirection: "row", borderTopWidth: 1, borderTopColor: "#27272a", paddingVertical: 12 }, cardFooterLight: { borderTopColor: "#f1f5f9" },
   actionBtn: { flex: 1, alignItems: "center", paddingVertical: 8 }, deleteText: { color: "#ef4444", fontWeight: "bold", fontSize: 13, letterSpacing: 1 }, editText: { fontWeight: "bold", fontSize: 13, letterSpacing: 1 },
+  pendingActionText: { color: "#f59e0b" },
   emptyState: { padding: 40, alignItems: "center" },
   fab: { position: "absolute", bottom: 24, right: 24, backgroundColor: "#f8fafc", width: 56, height: 56, borderRadius: 28, justifyContent: "center", alignItems: "center", shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 5 }, fabLight: { backgroundColor: "#0f172a" },
   loginContent: { flex: 1, padding: 24, justifyContent: "center", alignItems: "center" },
